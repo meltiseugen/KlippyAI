@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KlippyAI</title>
+    <link rel="stylesheet" href="{{ request.url_for('assets', path='embed.css') }}" />
+  </head>
+  <body data-session-id="{{ session_id }}" data-api-base="{{ api_base }}">
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">KlippyAI</p>
+          <h1>Printer diagnostics, inside the shell.</h1>
+        </div>
+        <div class="status-panel">
+          <span id="provider-badge" class="badge">Provider: loading</span>
+          <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
+        </div>
+      </header>
+
+      <section id="messages" class="messages">
+        <article class="message assistant">
+          <div class="message-meta">assistant</div>
+          <p>Paste log snippets, config excerpts, ask what failed, or ask for config help like "generate me a config for a fan".</p>
+        </article>
+      </section>
+
+      <section class="composer-shell">
+        <label class="field">
+          <span>Question</span>
+          <textarea id="message-input" rows="4" placeholder="Why is the printer shutting down during homing?"></textarea>
+        </label>
+
+        <div class="artifact-grid">
+          <label class="field">
+            <span>Artifact type</span>
+            <select id="artifact-kind">
+              <option value="klippy_log">klippy.log</option>
+              <option value="moonraker_log">moonraker.log</option>
+              <option value="system_log">system.log</option>
+              <option value="config_snippet">config snippet</option>
+              <option value="notes">notes</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Artifact label</span>
+            <input id="artifact-label" type="text" value="clipboard" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Pasted artifact</span>
+          <textarea id="artifact-input" rows="8" placeholder="Paste a log excerpt or config block here"></textarea>
+        </label>
+
+        <div class="actions">
+          <button id="send-button" type="button">Analyze</button>
+        </div>
+      </section>
+    </main>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-meta"></div>
+        <div class="message-body"></div>
+      </article>
+    </template>
+
+    <script src="{{ request.url_for('assets', path='embed.js') }}"></script>
+  </body>
+</html>

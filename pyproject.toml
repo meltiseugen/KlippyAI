@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "klippyai"
+version = "0.1.0"
+description = "Moonraker-integrated LLM assistant for Klipper and Kalico printers"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "aiosqlite>=0.20,<1.0",
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "jinja2>=3.1,<4.0",
+  "langchain>=1.0,<2.0",
+  "langchain-openai>=1.0,<2.0",
+  "langgraph>=1.0,<2.0",
+  "langgraph-checkpoint-sqlite>=3.0,<4.0",
+  "pydantic-settings>=2.9,<3.0",
+  "python-multipart>=0.0.9,<1.0",
+  "uvicorn[standard]>=0.34,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15,<2.0",
+  "pytest>=8.3,<9.0",
+  "pytest-asyncio>=0.26,<1.0",
+  "ruff>=0.11,<1.0",
+]
+
+[project.scripts]
+klippyai-agent = "klippyai_agent.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/klippyai_agent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/klippyai_agent/static" = "klippyai_agent/static"
+"src/klippyai_agent/templates" = "klippyai_agent/templates"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/.env.example",
+  "/.gitignore",
+  "/README.md",
+  "/deployment",
+  "/docs",
+  "/pyproject.toml",
+  "/src",
+  "/tests",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

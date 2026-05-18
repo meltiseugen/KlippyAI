@@ -1,0 +1,23 @@
+[Unit]
+Description=KlippyAI agent
+After=network-online.target moonraker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/klippyai
+EnvironmentFile=-/etc/klippyai/klippyai.env
+Environment=KLIPPYAI_ROOT_PATH=/klippyai
+ExecStart=/opt/klippyai/.venv/bin/klippyai-agent
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/klippyai /home/pi/printer_data
+
+[Install]
+WantedBy=multi-user.target
+

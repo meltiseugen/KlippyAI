@@ -1,0 +1,248 @@
+diff --git a/src/App.vue b/src/App.vue
+index 5d69637..de4080f 100644
+--- a/src/App.vue
++++ b/src/App.vue
+@@ -2,7 +2,8 @@
+     <v-app :style="cssVars">
+         <template v-if="socketIsConnected && guiIsReady">
+             <the-sidebar />
+-            <the-topbar />
++            <the-topbar @toggle-klippyai="showKlippyAiShell = !showKlippyAiShell" />
++            <klippy-ai-shell v-model="showKlippyAiShell" />
+             <v-main id="content" :style="mainStyle">
+                 <v-container id="page-container" fluid :class="containerClasses">
+                     <router-view />
+@@ -45,9 +46,11 @@ import TheScrewsTiltAdjustDialog from '@/components/dialogs/TheScrewsTiltAdjustD
+ import { setAndLoadLocale } from './plugins/i18n'
+ import TheMacroPrompt from '@/components/dialogs/TheMacroPrompt.vue'
+ import { AppRoute } from '@/routes'
++import KlippyAiShell from '@/components/integrations/KlippyAiShell.vue'
+ 
+ @Component({
+     components: {
++        KlippyAiShell,
+         TheMacroPrompt,
+         TheTimelapseRenderingSnackbar,
+         TheEditor,
+@@ -64,6 +67,8 @@ import { AppRoute } from '@/routes'
+     },
+ })
+ export default class App extends Mixins(BaseMixin, ThemeMixin) {
++    showKlippyAiShell = false
++
+     get title(): string {
+         let title = this.$store.getters['getTitle']
+ 
+diff --git a/src/components/TheTopbar.vue b/src/components/TheTopbar.vue
+index 6adc70e..a0fa630 100644
+--- a/src/components/TheTopbar.vue
++++ b/src/components/TheTopbar.vue
+@@ -53,6 +53,9 @@
+                 <v-icon class="mr-md-2">{{ mdiAlertOctagonOutline }}</v-icon>
+                 <span class="d-none d-md-inline">{{ $t('App.TopBar.EmergencyStop') }}</span>
+             </v-btn>
++            <v-btn icon tile class="minwidth-0" title="KlippyAI" aria-label="Open KlippyAI" @click="$emit('toggle-klippyai')">
++                <v-icon>{{ mdiRobotOutline }}</v-icon>
++            </v-btn>
+             <the-notification-menu />
+             <the-settings-menu />
+             <the-top-corner-menu />
+@@ -87,7 +90,7 @@ import PrinterSelector from '@/components/ui/PrinterSelector.vue'
+ import MainsailLogo from '@/components/ui/MainsailLogo.vue'
+ import TheNotificationMenu from '@/components/notifications/TheNotificationMenu.vue'
+ import { topbarHeight } from '@/store/variables'
+-import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick } from '@mdi/js'
++import { mdiAlertOctagonOutline, mdiContentSave, mdiFileUpload, mdiClose, mdiCloseThick, mdiRobotOutline } from '@mdi/js'
+ import EmergencyStopDialog from '@/components/dialogs/EmergencyStopDialog.vue'
+ import InlineSvg from 'vue-inline-svg'
+ import ThemeMixin from '@/components/mixins/theme'
+@@ -119,6 +122,7 @@ export default class TheTopbar extends Mixins(BaseMixin, ThemeMixin) {
+     mdiFileUpload = mdiFileUpload
+     mdiClose = mdiClose
+     mdiCloseThick = mdiCloseThick
++    mdiRobotOutline = mdiRobotOutline
+ 
+     topbarHeight = topbarHeight
+ 
+diff --git a/src/components/integrations/KlippyAiShell.vue b/src/components/integrations/KlippyAiShell.vue
+new file mode 100644
+index 0000000..15545bb
+--- /dev/null
++++ b/src/components/integrations/KlippyAiShell.vue
+@@ -0,0 +1,176 @@
++<template>
++    <v-navigation-drawer
++        :value="value"
++        temporary
++        fixed
++        right
++        :width="drawerWidth"
++        class="klippyai-shell"
++        :style="drawerStyle"
++        @input="updateValue">
++        <div class="klippyai-shell__column">
++            <v-toolbar flat dense class="klippyai-shell__toolbar" :height="topbarHeight">
++                <v-toolbar-title class="d-flex align-center">
++                    <v-icon left>{{ mdiRobotOutline }}</v-icon>
++                    <span>KlippyAI</span>
++                </v-toolbar-title>
++                <v-spacer />
++                <v-btn icon tile :disabled="loading" @click="refreshSession">
++                    <v-icon>{{ mdiRefresh }}</v-icon>
++                </v-btn>
++                <v-btn icon tile @click="updateValue(false)">
++                    <v-icon>{{ mdiCloseThick }}</v-icon>
++                </v-btn>
++            </v-toolbar>
++
++            <div v-if="errorMessage" class="klippyai-shell__state px-4 py-5">
++                <v-alert dense outlined type="error" class="mb-4">
++                    {{ errorMessage }}
++                </v-alert>
++                <div class="text-body-2 text--secondary mb-4">
++                    KlippyAI could not create a UI session. Check the reverse proxy and KlippyAI service.
++                </div>
++                <v-btn color="primary" :loading="loading" @click="refreshSession">Retry</v-btn>
++            </div>
++
++            <div v-else-if="loading || !embedPath" class="klippyai-shell__state">
++                <v-progress-circular indeterminate size="28" width="3" color="primary" class="mb-4" />
++                <div class="text-subtitle-1 font-weight-medium">Starting KlippyAI</div>
++                <div class="text-body-2 text--secondary mt-2">
++                    Creating an embedded session for diagnostics and config assistance.
++                </div>
++            </div>
++
++            <iframe
++                v-else
++                :key="iframeKey"
++                :src="embedPath"
++                title="KlippyAI"
++                class="klippyai-shell__iframe"
++                sandbox="allow-downloads allow-forms allow-same-origin allow-scripts" />
++        </div>
++    </v-navigation-drawer>
++</template>
++
++<script lang="ts">
++import Component from 'vue-class-component'
++import { Mixins, Prop, Watch } from 'vue-property-decorator'
++import BaseMixin from '@/components/mixins/base'
++import { mdiCloseThick, mdiRefresh, mdiRobotOutline } from '@mdi/js'
++import { topbarHeight } from '@/store/variables'
++
++interface KlippyAiUiSessionResponse {
++    session_id: string
++    embed_path: string
++    expires_at: string
++}
++
++@Component
++export default class KlippyAiShell extends Mixins(BaseMixin) {
++    @Prop({ default: false }) declare readonly value: boolean
++
++    mdiCloseThick = mdiCloseThick
++    mdiRefresh = mdiRefresh
++    mdiRobotOutline = mdiRobotOutline
++    topbarHeight = topbarHeight
++
++    loading = false
++    errorMessage = ''
++    embedPath: string | null = null
++    iframeKey = 0
++
++    get drawerWidth() {
++        return this.isMobile ? '100%' : 560
++    }
++
++    get drawerStyle(): Record<string, string> {
++        if (this.isMobile) return {}
++
++        return {
++            top: `${topbarHeight}px`,
++            height: `calc(var(--app-height) - ${topbarHeight}px)`,
++            'max-height': `calc(var(--app-height) - ${topbarHeight}px)`,
++        }
++    }
++
++    @Watch('value', { immediate: true })
++    async valueChanged(newVal: boolean) {
++        if (!newVal) return
++        await this.ensureSession(false)
++    }
++
++    updateValue(newVal: boolean) {
++        this.$emit('input', newVal)
++    }
++
++    async refreshSession() {
++        await this.ensureSession(true)
++    }
++
++    async ensureSession(force: boolean) {
++        if (this.loading) return
++        if (!force && this.embedPath) return
++
++        this.loading = true
++        this.errorMessage = ''
++
++        try {
++            const response = await fetch('/klippyai/api/ui-sessions', {
++                method: 'POST',
++                headers: { Accept: 'application/json' },
++            })
++
++            if (!response.ok) {
++                throw new Error(`KlippyAI session bootstrap failed with status ${response.status}.`)
++            }
++
++            const payload = (await response.json()) as KlippyAiUiSessionResponse
++            this.embedPath = payload.embed_path
++            this.iframeKey += 1
++        } catch (error) {
++            this.embedPath = null
++            this.errorMessage =
++                error instanceof Error ? error.message : 'KlippyAI session bootstrap failed unexpectedly.'
++        } finally {
++            this.loading = false
++        }
++    }
++}
++</script>
++
++<style scoped>
++.klippyai-shell {
++    z-index: 9 !important;
++}
++
++.klippyai-shell__column {
++    display: flex;
++    flex-direction: column;
++    height: 100%;
++    background: var(--v-background-base);
++}
++
++.klippyai-shell__toolbar {
++    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
++    flex: 0 0 auto;
++}
++
++html.theme--light .klippyai-shell__toolbar {
++    border-bottom-color: rgba(0, 0, 0, 0.12);
++}
++
++.klippyai-shell__state {
++    display: flex;
++    flex: 1 1 auto;
++    flex-direction: column;
++    justify-content: center;
++}
++
++.klippyai-shell__iframe {
++    display: block;
++    flex: 1 1 auto;
++    width: 100%;
++    border: 0;
++    background: transparent;
++}
++</style>
