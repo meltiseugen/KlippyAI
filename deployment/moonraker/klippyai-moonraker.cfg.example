@@ -1,0 +1,17 @@
+# KlippyAI Moonraker integration
+#
+# Include this file from moonraker.conf with:
+#   [include klippyai-moonraker.cfg]
+#
+# Moonraker also needs klippyai-agent added to printer_data/moonraker.asvc
+# so the service can be restarted through Moonraker/Mainsail.
+
+[update_manager klippyai-agent]
+type: git_repo
+channel: dev
+path: /home/pi/KlippyAI
+origin: https://github.com/meltiseugen/KlippyAI.git
+primary_branch: main
+managed_services: klippyai-agent
+info_tags:
+    desc=KlippyAI

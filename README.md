@@ -129,21 +129,35 @@ chmod +x install.sh
 ./install.sh
 ```
 
+To remove a host install later:
+
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
 The installer currently guides the user through:
 
 - choosing the Linux service user
-- confirming the project checkout path
+- confirming the project checkout path, default `/home/<service-user>/KlippyAI`
 - selecting the LLM provider
 - entering the provider API key when needed
 - selecting the model name
-- pointing KlippyAI at Moonraker
-- confirming the printer data root
+- pointing KlippyAI at Moonraker, default `http://127.0.0.1:7125`
+- confirming the printer data root, default `/home/<service-user>/printer_data`
+- confirming the Mainsail config directory, default `/home/<service-user>/printer_data/config`
 - creating a Python virtual environment
 - installing the package
 - writing `/etc/klippyai/klippyai.env`
+- writing `printer_data/config/klippyai.cfg`
+- writing `klippyai-moonraker.cfg` next to `moonraker.conf` (usually `printer_data/config/klippyai-moonraker.cfg`)
+- appending `[include klippyai-moonraker.cfg]` to `moonraker.conf`
+- adding `klippyai-agent` to `printer_data/moonraker.asvc`
 - generating and enabling a `systemd` service
 - generating an nginx location snippet for `/klippyai/`
 - optionally installing a Mainsail navigation link in `.theme/navi.json`
+
+The installer always asks for the service user first. Path defaults are then derived from that user, so a `biqu` host will naturally default to `/home/biqu/...` instead of `/home/pi/...`.
 
 After installation, the recommended `v1` flow is:
 
@@ -155,6 +169,8 @@ Important limitations:
 
 - the installer can create the nginx location snippet, but it does not yet patch your Mainsail server block automatically
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
+- changing `service_user` or `project_checkout_path` in `klippyai.cfg` does not rewrite the systemd unit automatically
+- Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
 
 ### Recommended Mainsail Integration
 
@@ -227,20 +243,44 @@ Then open the standalone UI in a browser:
 
 ## Runtime Configuration
 
-The main environment values are:
+KlippyAI now uses two configuration surfaces:
 
-- `KLIPPYAI_MOONRAKER_URL`: Moonraker base URL, usually `http://127.0.0.1:7125`
-- `KLIPPYAI_ROOT_PATH`: public reverse-proxy path, currently intended to be `/klippyai`
-- `KLIPPYAI_PORT`: local KlippyAI bind port, default `8811`
-- `KLIPPYAI_PRINTER_DATA_ROOT`: printer data directory, usually `/home/pi/printer_data`
-- `KLIPPYAI_LLM_PROVIDER`: currently `stub` or `openai`
-- `KLIPPYAI_MOONRAKER_SERVICE_NAME`: systemd unit to inspect for Moonraker, default `moonraker.service`
-- `KLIPPYAI_KLIPPER_SERVICE_NAME`: systemd unit to inspect for Klipper, default `klipper.service`
-- `KLIPPYAI_OPENAI_MODEL`: default OpenAI model name
+- `printer_data/config/klippyai.cfg` for host-editable runtime settings
+- `/etc/klippyai/klippyai.env` for secrets and bootstrap values such as the config-file path and API key
+
+The installer also creates Moonraker integration files:
+
+- `klippyai-moonraker.cfg` next to `moonraker.conf`, usually `printer_data/config/klippyai-moonraker.cfg`, for the `update_manager` entry
+- `printer_data/moonraker.asvc` to allow Moonraker to restart `klippyai-agent` from frontends such as Mainsail
+- an `[include klippyai-moonraker.cfg]` line in `moonraker.conf`
+
+`klippyai.cfg` is loaded at service start. After editing it from Mainsail, restart the agent with:
+
+```bash
+sudo systemctl restart klippyai-agent
+```
+
+The main `klippyai.cfg` values are:
+
+- `service_user`: install metadata for the service account
+- `project_checkout_path`: install metadata for the checkout path
+- `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data`
+- `mainsail_config_dir`: Mainsail-editable config directory, usually `/home/<service-user>/printer_data/config`
+- `moonraker_url`: Moonraker base URL, usually `http://127.0.0.1:7125`
+- `root_path`: public reverse-proxy path, usually `/klippyai`
+- `port`: local KlippyAI bind port, default `8811`
+- `data_dir`: local KlippyAI data directory
+- `llm_provider`: currently `stub` or `openai`
+- `openai_model`: default OpenAI model name
+- `enable_write_actions`: currently should remain `false`
+
+Environment-file values are intentionally minimal:
+
+- `KLIPPYAI_CONFIG_FILE`: points the service at `klippyai.cfg`
 - `KLIPPYAI_OPENAI_API_KEY`: server-side API key for OpenAI
-- `KLIPPYAI_ENABLE_WRITE_ACTIONS`: currently should remain `false`
 
-See [.env.example](.env.example) for the current full set.
+See [deployment/config/klippyai.cfg.example](deployment/config/klippyai.cfg.example) and [.env.example](.env.example) for the current examples.
+For Moonraker integration, see [deployment/moonraker/klippyai-moonraker.cfg.example](deployment/moonraker/klippyai-moonraker.cfg.example).
 
 ## Security Model
 
@@ -260,8 +300,10 @@ The intended security stance is:
 - `docs/mainsail-shell.md`: Mainsail integration plan
 - `deployment/systemd/`: service examples
 - `deployment/nginx/`: reverse-proxy snippet example
+- `deployment/moonraker/`: Moonraker integration example
 - `integrations/mainsail/`: supported custom-nav helper plus optional patch bundle
 - `install.sh`: guided Linux host installer
+- `uninstall.sh`: guided Linux host uninstaller
 - `BACKLOG.md`: planned work and milestone backlog
 
 ## Development Notes
@@ -272,6 +314,7 @@ The intended security stance is:
 - Host log collection currently targets direct files under `printer_data/logs` and supports both active and rotated `klippy.log*` / `moonraker.log*`, including Kalico-style restart splits.
 - Systemd diagnostics currently target `systemctl show` plus the last `journalctl` lines for the configured Moonraker and Klipper units.
 - Config assistant currently inspects `printer_data/config`, resolves `printer.cfg` includes, and can return typed config proposals in chat across the main supported feature categories.
+- Host-editable runtime config now lives in `printer_data/config/klippyai.cfg`, which is intended to be editable from Mainsail.
 - The current UI can be opened directly at `/klippyai/` or embedded via `/klippyai/embed`.
 
 ## Status And Roadmap

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import configparser
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +19,10 @@ class Settings(BaseSettings):
 
     app_name: str = "KlippyAI"
     environment: str = "development"
+    config_file: Path = Path("/home/pi/printer_data/config/klippyai.cfg")
+    service_user: str = "pi"
+    project_checkout_path: Path = Path("/home/pi/KlippyAI")
+    mainsail_config_dir: Path = Path("/home/pi/printer_data/config")
     host: str = "127.0.0.1"
     port: int = 8811
     root_path: str = ""
@@ -50,6 +56,25 @@ class Settings(BaseSettings):
         self.checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:
+    if not config_file.exists() or not config_file.is_file():
+        return {}
+
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read(config_file, encoding="utf-8")
+
+    field_names = set(Settings.model_fields)
+    values: dict[str, Any] = {}
+    for section in parser.sections():
+        for key, value in parser.items(section):
+            normalized_key = key.strip().lower()
+            if normalized_key in field_names:
+                values[normalized_key] = value.strip()
+    return values
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    bootstrap = Settings()
+    cfg_values = _load_klippyai_cfg_values(bootstrap.config_file)
+    return Settings(**cfg_values)

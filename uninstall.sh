@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PROJECT_NAME="KlippyAI"
+SERVICE_NAME="klippyai-agent"
+TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+ENV_FILE="/etc/klippyai/klippyai.env"
+SYSTEMD_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+NGINX_SNIPPET_PATH="/etc/klippyai/nginx-location.conf"
+
+log() {
+  printf '[%s] %s\n' "$PROJECT_NAME" "$*"
+}
+
+warn() {
+  printf '[%s] warning: %s\n' "$PROJECT_NAME" "$*" >&2
+}
+
+die() {
+  printf '[%s] error: %s\n' "$PROJECT_NAME" "$*" >&2
+  exit 1
+}
+
+confirm() {
+  local prompt="$1"
+  local default="${2:-N}"
+  local suffix="[y/N]"
+  local reply=""
+
+  if [[ "$default" == "Y" ]]; then
+    suffix="[Y/n]"
+  fi
+
+  read -r -p "$prompt $suffix " reply
+  reply="${reply:-$default}"
+  case "${reply,,}" in
+    y|yes) return 0 ;;
+    n|no) return 1 ;;
+    *) warn "Please answer yes or no."; confirm "$prompt" "$default"; return $? ;;
+  esac
+}
+
+prompt_default() {
+  local prompt="$1"
+  local default="$2"
+  local reply=""
+  read -r -p "$prompt [$default]: " reply
+  printf '%s' "${reply:-$default}"
+}
+
+require_linux() {
+  [[ "$(uname -s)" == "Linux" ]] || die "This uninstaller only supports Linux hosts."
+}
+
+require_cmd() {
+  local command_name="$1"
+  command -v "$command_name" >/dev/null 2>&1 || die "Required command not found: $command_name"
+}
+
+home_for_user() {
+  getent passwd "$1" | cut -d: -f6
+}
+
+run_root() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    "$@"
+  else
+    command -v sudo >/dev/null 2>&1 || die "sudo is required for uninstall."
+    sudo "$@"
+  fi
+}
+
+run_as_user() {
+  local target_user="$1"
+  shift
+
+  if [[ "$(id -un)" == "$target_user" ]]; then
+    "$@"
+    return
+  fi
+
+  if [[ "${EUID}" -eq 0 ]] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$target_user" -- "$@"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -u "$target_user" -H "$@"
+    return
+  fi
+
+  die "Unable to switch to user '$target_user'."
+}
+
+backup_file() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    run_root cp "$path" "${path}.bak.${TIMESTAMP}"
+    log "Backed up $path to ${path}.bak.${TIMESTAMP}"
+  fi
+}
+
+extract_env_value() {
+  local path="$1"
+  local key="$2"
+  [[ -f "$path" ]] || return 1
+
+  local line=""
+  line="$(grep -E "^${key}=" "$path" | tail -n1 || true)"
+  [[ -n "$line" ]] || return 1
+
+  line="${line#*=}"
+  if [[ "${line:0:1}" == '"' && "${line: -1}" == '"' ]]; then
+    line="${line:1:${#line}-2}"
+  fi
+  line="${line//\\\"/\"}"
+  line="${line//\\\\/\\}"
+  printf '%s' "$line"
+}
+
+get_cfg_value() {
+  local path="$1"
+  local section="$2"
+  local key="$3"
+  [[ -f "$path" ]] || return 1
+
+  awk -F'=' -v target_section="$section" -v target_key="$key" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      return value
+    }
+    /^\[[^]]+\]/ {
+      current = $0
+      sub(/^\[/, "", current)
+      sub(/\]$/, "", current)
+      current = trim(current)
+      next
+    }
+    /^[ \t]*[A-Za-z0-9_.-]+[ \t]*=/ {
+      if (current != target_section) {
+        next
+      }
+      key = trim($1)
+      if (key != target_key) {
+        next
+      }
+      value = substr($0, index($0, "=") + 1)
+      print trim(value)
+      exit
+    }
+  ' "$path"
+}
+
+remove_file_if_present() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    run_root rm -f -- "$path"
+    log "Removed $path"
+  fi
+}
+
+remove_dir_if_present() {
+  local path="$1"
+  if [[ -d "$path" ]]; then
+    run_root rm -rf -- "$path"
+    log "Removed $path"
+  fi
+}
+
+remove_line_from_file() {
+  local path="$1"
+  local line_to_remove="$2"
+  [[ -f "$path" ]] || return 0
+
+  if ! grep -Fqx "$line_to_remove" "$path"; then
+    return 0
+  fi
+
+  local temp_file
+  temp_file="$(mktemp)"
+  local mode
+  local owner
+  local group
+  mode="$(stat -c '%a' "$path")"
+  owner="$(stat -c '%u' "$path")"
+  group="$(stat -c '%g' "$path")"
+  grep -Fvx "$line_to_remove" "$path" >"$temp_file" || true
+  backup_file "$path"
+  run_root install -o "$owner" -g "$group" -m "$mode" "$temp_file" "$path"
+  rm -f "$temp_file"
+  log "Updated $path"
+}
+
+detect_moonraker_config_path() {
+  local home_dir="$1"
+  local config_dir="$2"
+  local candidate=""
+
+  for candidate in \
+    "$config_dir/moonraker.conf" \
+    "$home_dir/printer_data/config/moonraker.conf" \
+    "$home_dir/moonraker.conf"
+  do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+
+  printf '%s' "$config_dir/moonraker.conf"
+}
+
+print_summary() {
+  cat <<EOF
+
+Uninstall summary
+-----------------
+Service unit:          $SYSTEMD_UNIT_PATH
+Env file:              $ENV_FILE
+KlippyAI cfg:          ${KLIPPYAI_CFG_PATH:-<not found>}
+Moonraker config:      ${KLIPPYAI_MOONRAKER_CONFIG_PATH:-<not found>}
+Moonraker include:     ${KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH:-<not found>}
+Allowed services file: ${KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH:-<not found>}
+Mainsail config dir:   ${KLIPPYAI_MAINSAIL_CONFIG_DIR:-<not found>}
+Data dir:              ${KLIPPYAI_DATA_DIR:-<not found>}
+Project checkout:      ${KLIPPYAI_PROJECT_CHECKOUT_PATH:-<not found>}
+Remove nav entry:      $REMOVE_MAINSAIL_NAV
+Remove data dir:       $REMOVE_DATA_DIR
+Remove nginx snippet:  $REMOVE_NGINX_SNIPPET
+Remove checkout dir:   $REMOVE_CHECKOUT_DIR
+
+EOF
+}
+
+main() {
+  require_linux
+  require_cmd awk
+  require_cmd getent
+  require_cmd grep
+  require_cmd install
+  require_cmd stat
+  require_cmd systemctl
+
+  log "Preparing uninstall."
+
+  KLIPPYAI_CFG_PATH="$(extract_env_value "$ENV_FILE" "KLIPPYAI_CONFIG_FILE" || true)"
+  if [[ -z "${KLIPPYAI_CFG_PATH:-}" ]]; then
+    KLIPPYAI_CFG_PATH="$(prompt_default "Path to klippyai.cfg" "/home/pi/printer_data/config/klippyai.cfg")"
+  fi
+
+  KLIPPYAI_MAINSAIL_CONFIG_DIR="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "mainsail_config_dir" || true)"
+  KLIPPYAI_PRINTER_DATA_ROOT="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "printer_data_root" || true)"
+  KLIPPYAI_PROJECT_CHECKOUT_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "project_checkout_path" || true)"
+  KLIPPYAI_SERVICE_USER="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "service_user" || true)"
+  KLIPPYAI_DATA_DIR="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "server" "data_dir" || true)"
+
+  if [[ -z "${KLIPPYAI_SERVICE_USER:-}" ]] && [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != "root" ]]; then
+    KLIPPYAI_SERVICE_USER="$SUDO_USER"
+  fi
+  if [[ -z "${KLIPPYAI_SERVICE_USER:-}" ]]; then
+    KLIPPYAI_SERVICE_USER="$(id -un)"
+  fi
+  KLIPPYAI_SERVICE_HOME="$(home_for_user "$KLIPPYAI_SERVICE_USER" || true)"
+  if [[ -z "${KLIPPYAI_SERVICE_HOME:-}" ]]; then
+    KLIPPYAI_SERVICE_HOME="/home/${KLIPPYAI_SERVICE_USER}"
+  fi
+
+  if [[ -z "${KLIPPYAI_MAINSAIL_CONFIG_DIR:-}" ]] && [[ -n "${KLIPPYAI_PRINTER_DATA_ROOT:-}" ]]; then
+    KLIPPYAI_MAINSAIL_CONFIG_DIR="${KLIPPYAI_PRINTER_DATA_ROOT%/}/config"
+  fi
+  if [[ -z "${KLIPPYAI_PRINTER_DATA_ROOT:-}" ]]; then
+    KLIPPYAI_PRINTER_DATA_ROOT="${KLIPPYAI_SERVICE_HOME%/}/printer_data"
+  fi
+  if [[ -z "${KLIPPYAI_PROJECT_CHECKOUT_PATH:-}" ]]; then
+    KLIPPYAI_PROJECT_CHECKOUT_PATH="${KLIPPYAI_SERVICE_HOME%/}/KlippyAI"
+  fi
+  if [[ -z "${KLIPPYAI_DATA_DIR:-}" ]]; then
+    KLIPPYAI_DATA_DIR="/var/lib/klippyai"
+  fi
+  if [[ -z "${KLIPPYAI_MAINSAIL_CONFIG_DIR:-}" ]]; then
+    KLIPPYAI_MAINSAIL_CONFIG_DIR="${KLIPPYAI_SERVICE_HOME%/}/printer_data/config"
+  fi
+
+  KLIPPYAI_MOONRAKER_CONFIG_PATH="$(detect_moonraker_config_path "$KLIPPYAI_SERVICE_HOME" "$KLIPPYAI_MAINSAIL_CONFIG_DIR")"
+  KLIPPYAI_MOONRAKER_CONFIG_DIR="${KLIPPYAI_MOONRAKER_CONFIG_PATH%/*}"
+  KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH="${KLIPPYAI_MOONRAKER_CONFIG_DIR}/klippyai-moonraker.cfg"
+  KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH="${KLIPPYAI_PRINTER_DATA_ROOT%/}/moonraker.asvc"
+  KLIPPYAI_MAINSAIL_NAV_HREF="/klippyai/"
+
+  if confirm "Remove the Mainsail custom-navigation entry?" "Y"; then
+    REMOVE_MAINSAIL_NAV="yes"
+  else
+    REMOVE_MAINSAIL_NAV="no"
+  fi
+
+  if confirm "Remove the KlippyAI data directory (${KLIPPYAI_DATA_DIR})?" "N"; then
+    REMOVE_DATA_DIR="yes"
+  else
+    REMOVE_DATA_DIR="no"
+  fi
+
+  if confirm "Delete the nginx snippet file (${NGINX_SNIPPET_PATH}) now?" "N"; then
+    REMOVE_NGINX_SNIPPET="yes"
+  else
+    REMOVE_NGINX_SNIPPET="no"
+  fi
+
+  if confirm "Delete the project checkout directory (${KLIPPYAI_PROJECT_CHECKOUT_PATH})?" "N"; then
+    REMOVE_CHECKOUT_DIR="yes"
+  else
+    REMOVE_CHECKOUT_DIR="no"
+  fi
+
+  print_summary
+  confirm "Proceed with uninstall?" "N" || die "Uninstall cancelled."
+
+  if systemctl list-unit-files "$SERVICE_NAME" >/dev/null 2>&1; then
+    log "Stopping and disabling ${SERVICE_NAME}."
+    run_root systemctl disable --now "$SERVICE_NAME" || warn "Could not fully disable ${SERVICE_NAME}."
+  fi
+
+  remove_file_if_present "$SYSTEMD_UNIT_PATH"
+  run_root systemctl daemon-reload
+
+  if [[ "$REMOVE_MAINSAIL_NAV" == "yes" ]] && [[ -d "$KLIPPYAI_MAINSAIL_CONFIG_DIR" ]]; then
+    if command -v python3 >/dev/null 2>&1 && [[ -f "$KLIPPYAI_PROJECT_CHECKOUT_PATH/integrations/mainsail/uninstall-custom-nav.sh" ]]; then
+      if id "$KLIPPYAI_SERVICE_USER" >/dev/null 2>&1; then
+        run_as_user "$KLIPPYAI_SERVICE_USER" bash "$KLIPPYAI_PROJECT_CHECKOUT_PATH/integrations/mainsail/uninstall-custom-nav.sh" \
+          --config-dir "$KLIPPYAI_MAINSAIL_CONFIG_DIR" \
+          --href "$KLIPPYAI_MAINSAIL_NAV_HREF" \
+          --title "KlippyAI"
+      else
+        warn "Skipping Mainsail nav removal because the service user '$KLIPPYAI_SERVICE_USER' does not exist."
+      fi
+    else
+      warn "Skipping Mainsail nav removal because python3 or uninstall-custom-nav.sh is unavailable."
+    fi
+  fi
+
+  if [[ -f "$KLIPPYAI_MOONRAKER_CONFIG_PATH" ]]; then
+    remove_line_from_file "$KLIPPYAI_MOONRAKER_CONFIG_PATH" "[include $(basename "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH")]"
+  fi
+  remove_file_if_present "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH"
+  remove_line_from_file "$KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH" "$SERVICE_NAME"
+  remove_file_if_present "$KLIPPYAI_CFG_PATH"
+  remove_file_if_present "$ENV_FILE"
+
+  if [[ "$REMOVE_NGINX_SNIPPET" == "yes" ]]; then
+    remove_file_if_present "$NGINX_SNIPPET_PATH"
+  fi
+
+  if [[ "$REMOVE_DATA_DIR" == "yes" ]]; then
+    remove_dir_if_present "$KLIPPYAI_DATA_DIR"
+  fi
+
+  if [[ "$REMOVE_CHECKOUT_DIR" == "yes" ]]; then
+    if [[ -n "$KLIPPYAI_PROJECT_CHECKOUT_PATH" && "$KLIPPYAI_PROJECT_CHECKOUT_PATH" != "/" ]]; then
+      cd /
+      remove_dir_if_present "$KLIPPYAI_PROJECT_CHECKOUT_PATH"
+    else
+      warn "Refusing to remove an unsafe checkout path: ${KLIPPYAI_PROJECT_CHECKOUT_PATH:-<empty>}"
+    fi
+  fi
+
+  cat <<EOF
+
+Uninstall complete
+------------------
+Removed:
+- systemd unit for ${SERVICE_NAME}
+- KlippyAI runtime config
+- Moonraker include entry and allowed-services entry
+- KlippyAI environment file
+
+Manual follow-up:
+1. Restart Moonraker:
+   sudo systemctl restart moonraker
+2. If nginx still includes ${NGINX_SNIPPET_PATH}, remove that include before deleting or reloading nginx.
+3. If you kept the checkout directory, you can remove it later manually.
+
+EOF
+}
+
+main "$@"

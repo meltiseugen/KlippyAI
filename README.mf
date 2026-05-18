@@ -64,11 +64,18 @@ On a Linux Klipper host:
 
    `./install.sh`
 
+   To remove the host install later:
+
+   `chmod +x uninstall.sh`
+
+   `./uninstall.sh`
+
 3. The installer will prompt for:
    - service user
-   - checkout path
-   - Moonraker URL
-   - printer data root
+   - checkout path, default `/home/<service-user>/KlippyAI`
+   - Moonraker URL, default `http://127.0.0.1:7125`
+   - printer data root, default `/home/<service-user>/printer_data`
+   - Mainsail config directory, default `/home/<service-user>/printer_data/config`
    - LLM provider
    - API key
    - model name
@@ -76,14 +83,24 @@ On a Linux Klipper host:
    - creates a Python virtual environment
    - installs the package
    - writes `/etc/klippyai/klippyai.env`
+   - writes `printer_data/config/klippyai.cfg`
+   - writes `klippyai-moonraker.cfg` next to `moonraker.conf`
+   - appends an include to `moonraker.conf`
+   - adds `klippyai-agent` to `printer_data/moonraker.asvc`
    - creates a `systemd` service
    - generates an nginx snippet for `/klippyai/`
    - can write `.theme/navi.json` for a supported Mainsail link
+
+The installer still asks for the service user first. The suggested checkout and printer-data paths are then derived from that user, so hosts using `biqu` will default to `/home/biqu/...`.
 
 Important notes:
 
 - the installer currently generates the nginx location snippet, but you still need to include it in the Mainsail nginx server block
 - the installer can also write `.theme/navi.json` so Mainsail shows a supported `KlippyAI` link
+- normal runtime settings now live in `printer_data/config/klippyai.cfg`, intended to be editable from Mainsail
+- after editing `klippyai.cfg`, restart the service with `sudo systemctl restart klippyai-agent`
+- `printer_data/moonraker.asvc` is what allows Moonraker and Mainsail to restart `klippyai-agent`
+- after installation, restart Moonraker so it reloads the KlippyAI include and allowed-services file
 - the installer does not patch or build Mainsail automatically
 - the source patch bundle under `integrations/mainsail/` is optional, not the default v1 path
 

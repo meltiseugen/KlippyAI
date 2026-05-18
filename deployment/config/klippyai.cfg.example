@@ -1,0 +1,49 @@
+# KlippyAI runtime configuration
+#
+# Copy or adapt this file into printer_data/config/klippyai.cfg on a host install.
+# It is designed to be editable from Mainsail.
+#
+# Notes:
+# - Restart klippyai-agent after editing this file.
+# - `service_user` and `project_checkout_path` are install metadata.
+#   If you change them, rerun install.sh or update the systemd service manually.
+# - Keep API keys in /etc/klippyai/klippyai.env, not in this file.
+
+[install]
+service_user = pi
+project_checkout_path = /home/pi/KlippyAI
+printer_data_root = /home/pi/printer_data
+mainsail_config_dir = /home/pi/printer_data/config
+
+[server]
+host = 127.0.0.1
+port = 8811
+root_path = /klippyai
+public_base_url = http://127.0.0.1:8811
+moonraker_url = http://127.0.0.1:7125
+data_dir = /var/lib/klippyai
+checkpoint_db = /var/lib/klippyai/checkpoints.sqlite
+managed_config_dir_name = klippyai
+session_ttl_seconds = 3600
+enable_write_actions = false
+
+[llm]
+llm_provider = stub
+openai_model = gpt-5-mini
+
+[logs]
+collect_host_logs = true
+logs_dir_name = logs
+log_max_files_per_family = 3
+log_active_tail_bytes = 160000
+log_rotated_tail_bytes = 80000
+log_artifact_char_limit = 18000
+
+[system]
+collect_systemd_diagnostics = true
+moonraker_service_name = moonraker.service
+klipper_service_name = klipper.service
+journal_lines = 200
+system_status_artifact_char_limit = 6000
+journal_artifact_char_limit = 16000
+system_command_timeout_seconds = 6
