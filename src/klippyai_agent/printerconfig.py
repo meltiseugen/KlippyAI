@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import glob
 import re
 from dataclasses import dataclass, field
@@ -118,12 +119,14 @@ class ConfigCollector:
         printer_data_root: Path,
         *,
         config_dir_name: str = "config",
-        root_config_name: str = "printer.cfg",
+        root_config_name: str | None = None,
+        ignore_globs: str | list[str] | tuple[str, ...] | None = None,
         max_documents: int = 12,
         max_chars_per_document: int = 12_000,
     ) -> None:
         self._config_dir = printer_data_root / config_dir_name
-        self._root_config_name = root_config_name
+        self._root_config_name = self._normalize_root_config_name(root_config_name)
+        self._ignore_globs = self._normalize_ignore_globs(ignore_globs)
         self._max_documents = max_documents
         self._max_chars_per_document = max_chars_per_document
 
@@ -137,9 +140,8 @@ class ConfigCollector:
             notes.append(f"Config path is not a directory: {self._config_dir}")
             return ConfigSnapshot(root_file=None, documents=[], notes=notes)
 
-        root_file = self._config_dir / self._root_config_name
-        if not root_file.exists():
-            notes.append(f"Root config file was not found: {root_file}")
+        root_file = self._resolve_root_file(notes)
+        if root_file is None:
             return ConfigSnapshot(root_file=None, documents=[], notes=notes)
 
         visited: set[Path] = set()
@@ -153,6 +155,79 @@ class ConfigCollector:
             documents=documents,
             notes=notes,
         )
+
+    @staticmethod
+    def _normalize_root_config_name(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_ignore_globs(value: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            parts = [item.strip() for item in re.split(r"[,\n;]+", value) if item.strip()]
+            return tuple(parts)
+        return tuple(str(item).strip() for item in value if str(item).strip())
+
+    def _resolve_root_file(self, notes: list[str]) -> Path | None:
+        if self._root_config_name:
+            root_file = self._resolve_root_candidate(self._root_config_name)
+            if not root_file.exists():
+                notes.append(f"Configured root config file was not found: {root_file}")
+                return None
+            if not root_file.is_file():
+                notes.append(f"Configured root config path is not a file: {root_file}")
+                return None
+            return root_file
+
+        auto_detected = self._auto_detect_root_file()
+        if auto_detected is None:
+            notes.append(f"No root config file could be auto-detected under: {self._config_dir}")
+            return None
+        notes.append(f"Auto-detected root config file: {auto_detected}")
+        return auto_detected
+
+    def _resolve_root_candidate(self, value: str) -> Path:
+        candidate = Path(value).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        return self._config_dir / candidate
+
+    def _auto_detect_root_file(self) -> Path | None:
+        candidates = [
+            path
+            for path in self._config_dir.rglob("*.cfg")
+            if path.is_file() and not self._should_ignore(path)
+        ]
+        if not candidates:
+            return None
+
+        ranked: list[tuple[int, Path]] = []
+        for path in candidates:
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            sections = self._extract_sections(content)
+            includes = self._extract_include_patterns(content)
+            score = 0
+            if path.name.lower() == "printer.cfg":
+                score += 8
+            if path.parent == self._config_dir:
+                score += 3
+            if any(section.lower() == "printer" for section in sections):
+                score += 12
+            score += min(len(includes), 5)
+            ranked.append((score, path))
+
+        if not ranked:
+            return None
+
+        ranked.sort(key=lambda item: (item[0], str(item[1]).lower()), reverse=True)
+        return ranked[0][1]
 
     def _collect_file(
         self,
@@ -195,6 +270,9 @@ class ConfigCollector:
                 notes.append(f"Include pattern matched no files: {pattern} (from {path.name})")
                 continue
             for match in matches:
+                if self._should_ignore(match):
+                    notes.append(f"Ignored config file due to config_context.ignore_globs: {match}")
+                    continue
                 self._collect_file(match, visited, documents, notes)
                 if len(documents) >= self._max_documents:
                     return
@@ -222,6 +300,28 @@ class ConfigCollector:
             if Path(candidate).is_file()
         ]
         return matches
+
+    def _should_ignore(self, path: Path) -> bool:
+        if not self._ignore_globs:
+            return False
+        relative = self._relative_path_string(path)
+        path_name = path.name
+        absolute = path.as_posix()
+        return any(
+            fnmatch.fnmatch(relative, pattern)
+            or fnmatch.fnmatch(path_name, pattern)
+            or fnmatch.fnmatch(absolute, pattern)
+            for pattern in self._ignore_globs
+        )
+
+    def _relative_path_string(self, path: Path) -> str:
+        try:
+            return path.resolve().relative_to(self._config_dir.resolve()).as_posix()
+        except (OSError, ValueError):
+            try:
+                return path.relative_to(self._config_dir).as_posix()
+            except ValueError:
+                return path.as_posix()
 
     @staticmethod
     def _clip_text(text: str, limit: int) -> str:

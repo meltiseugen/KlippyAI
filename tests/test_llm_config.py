@@ -4,6 +4,7 @@ import pytest
 
 from klippyai_agent.llm import ConfigPromptPayload, StubConfigAssistantProvider
 from klippyai_agent.printerconfig import ConfigRequestTarget, ConfigSnapshot
+from klippyai_agent.printerprofile import PrinterProfile
 
 
 @pytest.mark.asyncio
@@ -33,6 +34,7 @@ async def test_stub_config_provider_returns_a_proposal_for_each_feature(
         user_message=f"Generate me a {feature} config",
         snapshot=ConfigSnapshot(root_file=None, documents=[], notes=[]),
         target=ConfigRequestTarget(feature=feature, rationale="test"),
+        profile=PrinterProfile(),
     )
 
     result = await provider.propose(payload)

@@ -4,6 +4,7 @@ const apiBase = body.dataset.apiBase;
 const messages = document.getElementById("messages");
 const providerBadge = document.getElementById("provider-badge");
 const moonrakerBadge = document.getElementById("moonraker-badge");
+const profileBadge = document.getElementById("profile-badge");
 const sendButton = document.getElementById("send-button");
 const messageInput = document.getElementById("message-input");
 const artifactInput = document.getElementById("artifact-input");
@@ -83,6 +84,29 @@ function appendAssistantPayload(payload) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+function summarizeProfile(profile) {
+  if (!profile) {
+    return "Profile: unavailable";
+  }
+  if (profile.summary) {
+    return `Profile: ${profile.summary}`;
+  }
+  const parts = [];
+  if (profile.firmware_flavor) {
+    parts.push(profile.firmware_flavor);
+  }
+  if (profile.kinematics) {
+    parts.push(profile.kinematics);
+  }
+  if (profile.canbus_enabled) {
+    parts.push("CAN");
+  }
+  if (profile.addons?.length) {
+    parts.push(profile.addons.slice(0, 2).map((addon) => addon.name).join(", "));
+  }
+  return parts.length ? `Profile: ${parts.join(" | ")}` : "Profile: unavailable";
+}
+
 async function bootstrap() {
   const response = await fetch(`${apiBase}/bootstrap?session_id=${encodeURIComponent(sessionId)}`);
   if (!response.ok) {
@@ -94,6 +118,7 @@ async function bootstrap() {
     ? "Moonraker: reachable"
     : "Moonraker: unavailable";
   moonrakerBadge.classList.add(payload.moonraker_reachable ? "ok" : "warn");
+  profileBadge.textContent = summarizeProfile(payload.printer_profile);
 }
 
 async function sendMessage() {

@@ -20,6 +20,7 @@ from klippyai_agent.printerconfig import (
     ConfigSnapshot,
     infer_config_request_target,
 )
+from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ArtifactInput, ConfigProposal, IssueFinding
 
 
@@ -30,6 +31,7 @@ class WorkflowContext:
     llm: DiagnosisProvider
     config_collector: ConfigCollector
     config_llm: ConfigAssistantProvider
+    profile: PrinterProfile
 
 
 class DiagnosisState(TypedDict, total=False):
@@ -38,6 +40,7 @@ class DiagnosisState(TypedDict, total=False):
     user_message: str
     artifacts: list[dict[str, Any]]
     snapshot: dict[str, Any]
+    config_snapshot: dict[str, Any]
     findings: list[dict[str, Any]]
     llm_output: dict[str, Any]
     response_text: str
@@ -72,6 +75,7 @@ async def collect_context(
 ) -> DiagnosisState:
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
     snapshot = await runtime.context.collector.collect(input_artifacts)
+    config_snapshot = runtime.context.config_collector.collect()
     return {
         "artifacts": [artifact.model_dump() for artifact in input_artifacts],
         "snapshot": {
@@ -80,6 +84,7 @@ async def collect_context(
             "notes": snapshot.notes,
             "artifacts": [artifact.model_dump() for artifact in snapshot.artifacts],
         },
+        "config_snapshot": config_snapshot.to_state(),
         "moonraker_reachable": snapshot.moonraker_reachable,
     }
 
@@ -112,10 +117,13 @@ async def call_llm(
         artifacts=artifacts,
         notes=list(snapshot_data.get("notes", [])),
     )
+    config_snapshot = ConfigSnapshot.from_state(state.get("config_snapshot", {}))
     payload = DiagnosisPromptPayload(
         user_message=state["user_message"],
         snapshot=snapshot,
+        config_snapshot=config_snapshot,
         findings=findings,
+        profile=runtime.context.profile,
     )
     llm_output = await runtime.context.llm.analyze(payload)
     return {"llm_output": llm_output.model_dump()}
@@ -199,6 +207,7 @@ async def call_config_llm(
         user_message=state["user_message"],
         snapshot=snapshot,
         target=target,
+        profile=runtime.context.profile,
     )
     config_output = await runtime.context.config_llm.propose(payload)
     return {"config_output": config_output.model_dump()}

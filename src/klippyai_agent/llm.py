@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from klippyai_agent.diagnostics import DiagnosticsSnapshot
 from klippyai_agent.printerconfig import ConfigRequestTarget, ConfigSnapshot
+from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ConfigProposal, IssueFinding
 from klippyai_agent.settings import Settings
 
@@ -31,7 +32,9 @@ class ConfigAssistantOutput(BaseModel):
 class DiagnosisPromptPayload:
     user_message: str
     snapshot: DiagnosticsSnapshot
+    config_snapshot: ConfigSnapshot
     findings: list[IssueFinding]
+    profile: PrinterProfile
 
 
 @dataclass(slots=True)
@@ -39,6 +42,7 @@ class ConfigPromptPayload:
     user_message: str
     snapshot: ConfigSnapshot
     target: ConfigRequestTarget
+    profile: PrinterProfile
 
 
 class DiagnosisProvider(Protocol):
@@ -59,10 +63,13 @@ class StubDiagnosisProvider:
     name = "stub"
 
     async def analyze(self, payload: DiagnosisPromptPayload) -> DiagnosisLLMOutput:
+        profile_summary = payload.profile.summary_label()
         if payload.findings:
             recommended_actions = [finding.proposed_fix for finding in payload.findings[:3]]
             likely_causes = [finding.summary for finding in payload.findings[:3]]
             summary = "Deterministic diagnostics found printer issues in the supplied artifacts."
+            if profile_summary:
+                summary += f" Detected printer profile: {profile_summary}."
         else:
             recommended_actions = [
                 "Paste relevant klippy.log, moonraker.log, or config excerpts.",
@@ -72,6 +79,8 @@ class StubDiagnosisProvider:
                 "Insufficient context in the current request.",
             ]
             summary = "No deterministic issue matched yet, and no external LLM provider is configured."
+            if profile_summary:
+                summary += f" Current detected profile: {profile_summary}."
 
         return DiagnosisLLMOutput(
             summary=summary,
@@ -89,8 +98,12 @@ class StubConfigAssistantProvider:
 
     async def propose(self, payload: ConfigPromptPayload) -> ConfigAssistantOutput:
         proposal = self._build_stub_proposal(payload)
+        profile_summary = payload.profile.summary_label()
+        summary = f"Generated a first-pass {proposal.feature} config proposal based on the current request and collected printer config."
+        if profile_summary:
+            summary += f" Detected printer profile: {profile_summary}."
         return ConfigAssistantOutput(
-            summary=f"Generated a first-pass {proposal.feature} config proposal based on the current request and collected printer config.",
+            summary=summary,
             proposals=[proposal],
             next_actions=self._build_next_actions(proposal.feature),
             follow_up_questions=self._build_follow_up_questions(proposal.feature),
@@ -98,7 +111,7 @@ class StubConfigAssistantProvider:
 
     def _build_stub_proposal(self, payload: ConfigPromptPayload) -> ConfigProposal:
         feature = payload.target.feature
-        warnings = self._common_warnings(payload.snapshot)
+        warnings = self._common_warnings(payload.snapshot, payload.profile)
 
         builders = {
             "fan": self._fan_proposal,
@@ -117,11 +130,15 @@ class StubConfigAssistantProvider:
         return builder(payload, warnings)
 
     @staticmethod
-    def _common_warnings(snapshot: ConfigSnapshot) -> list[str]:
+    def _common_warnings(snapshot: ConfigSnapshot, profile: PrinterProfile) -> list[str]:
         warnings: list[str] = []
         if not snapshot.has_managed_include("klippyai"):
             warnings.append(
                 "Your current config does not appear to include a klippyai-managed include path yet. You will need to add one manually."
+            )
+        if profile.canbus_enabled:
+            warnings.append(
+                "This printer appears to use CAN-connected hardware. Make sure new pins are assigned under the correct MCU alias."
             )
         return warnings
 
@@ -185,6 +202,10 @@ class StubConfigAssistantProvider:
         )
 
     def _probe_proposal(self, payload: ConfigPromptPayload, warnings: list[str]) -> ConfigProposal:
+        if payload.profile.probe_type and payload.profile.probe_type not in {"none", "generic"}:
+            warnings.append(
+                f"The saved printer profile already indicates a {payload.profile.probe_type} probe. Review overlap before adding another probe section."
+            )
         return ConfigProposal(
             feature="probe",
             title="Starter probe section",
@@ -224,6 +245,10 @@ class StubConfigAssistantProvider:
         )
 
     def _input_shaper_proposal(self, payload: ConfigPromptPayload, warnings: list[str]) -> ConfigProposal:
+        if payload.profile.accelerometer in {None, "none"}:
+            warnings.append(
+                "The saved printer profile does not show an accelerometer yet. Verify accelerometer setup before treating this as a tuned input-shaper config."
+            )
         return ConfigProposal(
             feature="input_shaper",
             title="Starter input shaper block",
@@ -243,6 +268,10 @@ class StubConfigAssistantProvider:
         )
 
     def _bed_mesh_proposal(self, payload: ConfigPromptPayload, warnings: list[str]) -> ConfigProposal:
+        if payload.profile.probe_type in {None, "none"}:
+            warnings.append(
+                "The saved printer profile does not show a probe yet. Confirm whether this printer will use a probe or a manual mesh workflow."
+            )
         return ConfigProposal(
             feature="bed_mesh",
             title="Starter bed mesh section",
@@ -263,6 +292,19 @@ class StubConfigAssistantProvider:
         )
 
     def _filament_proposal(self, payload: ConfigPromptPayload, warnings: list[str]) -> ConfigProposal:
+        assumptions = [
+            "The sensor is a basic switch-style runout detector.",
+        ]
+        if payload.profile.filament_sensor == "motion":
+            warnings.append(
+                "The saved printer profile already indicates a motion-style filament sensor. A switch-sensor scaffold may not match your current hardware."
+            )
+        elif payload.profile.filament_sensor == "switch":
+            warnings.append(
+                "The saved printer profile already indicates a switch-style filament sensor. Review overlap before adding another runout section."
+            )
+        elif payload.profile.filament_sensor == "none":
+            assumptions.append("The saved printer profile currently shows no filament sensor configured.")
         return ConfigProposal(
             feature="filament",
             title="Starter filament runout sensor section",
@@ -275,13 +317,15 @@ class StubConfigAssistantProvider:
                 "  PAUSE\n"
             ),
             rationale="This is a safe baseline for a simple filament switch sensor that pauses on runout.",
-            assumptions=[
-                "The sensor is a basic switch-style runout detector.",
-            ],
+            assumptions=assumptions,
             warnings=["Replace <SWITCH_PIN> with the actual sensor input pin.", *warnings],
         )
 
     def _canbus_proposal(self, payload: ConfigPromptPayload, warnings: list[str]) -> ConfigProposal:
+        if not payload.profile.canbus_enabled:
+            warnings.append(
+                "The saved printer profile does not show CAN enabled yet. Treat this as an initial CAN bring-up, not an incremental edit to an existing CAN topology."
+            )
         return ConfigProposal(
             feature="canbus",
             title="Starter CAN toolhead MCU section",
@@ -482,14 +526,17 @@ class OpenAIDiagnosisProvider:
                 (
                     "You are an expert Klipper and Moonraker diagnostics assistant. "
                     "Use supplied evidence first, do not invent printer state, keep the answer grounded, "
-                    "and propose safe next steps before any invasive change."
+                    "and propose safe next steps before any invasive change. "
+                    "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack."
                 ),
             ),
             (
                 "human",
                 (
                     "User request:\n{user_message}\n\n"
+                    "Detected printer profile:\n{profile_block}\n\n"
                     "Collected context:\n{context_block}\n\n"
+                    "Current config context:\n{config_block}\n\n"
                     "Deterministic findings:\n{findings_block}\n\n"
                     "Return a concise structured diagnosis."
                 ),
@@ -518,7 +565,9 @@ class OpenAIDiagnosisProvider:
         return await chain.ainvoke(
             {
                 "user_message": payload.user_message,
+                "profile_block": payload.profile.to_prompt_block(),
                 "context_block": payload.snapshot.to_prompt_block(),
+                "config_block": payload.config_snapshot.to_prompt_block(max_documents=6),
                 "findings_block": findings_block,
             }
         )
@@ -534,13 +583,15 @@ class OpenAIConfigAssistantProvider:
                 (
                     "You are an expert Klipper and Kalico configuration assistant. "
                     "Generate safe, reviewable config snippets. Prefer managed include files under klippyai/*.cfg. "
-                    "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly."
+                    "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
+                    "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons."
                 ),
             ),
             (
                 "human",
                 (
                     "User request:\n{user_message}\n\n"
+                    "Detected printer profile:\n{profile_block}\n\n"
                     "Detected target:\n{target_feature}\n"
                     "Detection rationale:\n{target_rationale}\n\n"
                     "Current config context:\n{config_block}\n\n"
@@ -564,6 +615,7 @@ class OpenAIConfigAssistantProvider:
         return await chain.ainvoke(
             {
                 "user_message": payload.user_message,
+                "profile_block": payload.profile.to_prompt_block(),
                 "target_feature": payload.target.feature,
                 "target_rationale": payload.target.rationale,
                 "config_block": payload.snapshot.to_prompt_block(),

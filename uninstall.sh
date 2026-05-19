@@ -376,8 +376,15 @@ Removed:
 Manual follow-up:
 1. Restart Moonraker:
    sudo systemctl restart moonraker
-2. If nginx still includes ${NGINX_SNIPPET_PATH}, remove that include before deleting or reloading nginx.
-3. If you kept the checkout directory, you can remove it later manually.
+2. Remove this line from the Mainsail nginx server block if it is still present:
+   include ${NGINX_SNIPPET_PATH};
+   Common file locations to edit are often:
+   - /etc/nginx/conf.d/mainsail.conf
+   - /etc/nginx/sites-enabled/mainsail
+   - /etc/nginx/sites-available/mainsail
+3. Test and reload nginx:
+   sudo nginx -t && sudo systemctl reload nginx
+4. If you kept the checkout directory, you can remove it later manually.
 
 EOF
 }

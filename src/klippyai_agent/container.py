@@ -9,6 +9,7 @@ from klippyai_agent.hostsystem import HostSystemCollector, SystemCommandRunner
 from klippyai_agent.llm import build_config_provider, build_diagnosis_provider
 from klippyai_agent.moonraker import MoonrakerClient
 from klippyai_agent.printerconfig import ConfigCollector
+from klippyai_agent.printerprofile import build_profile_from_settings
 from klippyai_agent.services import ChatService
 from klippyai_agent.sessions import InMemorySessionStore
 from klippyai_agent.settings import Settings
@@ -56,13 +57,19 @@ def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
     rules = RuleEngine()
     diagnosis_provider = build_diagnosis_provider(settings)
     config_provider = build_config_provider(settings)
-    config_collector = ConfigCollector(settings.printer_data_root)
+    config_collector = ConfigCollector(
+        settings.printer_data_root,
+        root_config_name=settings.config_root_file,
+        ignore_globs=settings.config_ignore_globs,
+    )
+    profile = build_profile_from_settings(settings)
     workflow_context = WorkflowContext(
         collector=collector,
         rules=rules,
         llm=diagnosis_provider,
         config_collector=config_collector,
         config_llm=config_provider,
+        profile=profile,
     )
     diagnosis_graph = build_diagnosis_graph(checkpointer)
     config_graph = build_config_graph(checkpointer)

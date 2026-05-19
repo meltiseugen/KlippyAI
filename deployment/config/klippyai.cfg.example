@@ -15,6 +15,41 @@ project_checkout_path = /home/pi/KlippyAI
 printer_data_root = /home/pi/printer_data
 mainsail_config_dir = /home/pi/printer_data/config
 
+[printer_identity]
+# Installer-populated printer profile identity. You can edit these later if
+# KlippyAI detected the wrong hardware names or firmware flavor.
+firmware_flavor =
+firmware_version =
+host_model =
+host_distribution =
+mainboard =
+mainboard_mcu =
+toolhead =
+toolhead_board =
+
+[printer_capabilities]
+probe_type = none
+accelerometer = none
+filament_sensor = none
+camera_stack = none
+bed_mesh_configured = false
+input_shaper_configured = false
+canbus_enabled = false
+addons =
+
+[printer_geometry]
+kinematics =
+build_volume_x =
+build_volume_y =
+build_volume_z =
+extruder_count =
+
+[config_context]
+# Optional KlippyAI-only overrides for config collection.
+# Leave blank to use the detected active root config and include tree.
+root_config_file =
+ignore_globs =
+
 [server]
 host = 127.0.0.1
 port = 8811

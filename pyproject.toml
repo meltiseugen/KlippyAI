@@ -32,6 +32,7 @@ dev = [
 
 [project.scripts]
 klippyai-agent = "klippyai_agent.__main__:main"
+klippyai-detect-profile = "klippyai_agent.detect_profile:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/klippyai_agent"]
@@ -54,4 +55,3 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-

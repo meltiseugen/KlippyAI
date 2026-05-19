@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ChatRequest
 from klippyai_agent.services import ChatService
 from klippyai_agent.sessions import InMemorySessionStore
@@ -53,7 +54,10 @@ async def test_chat_service_routes_config_request_to_config_graph() -> None:
         root_path="",
         diagnosis_graph=diagnosis_graph,
         config_graph=config_graph,
-        workflow_context=SimpleNamespace(collector=_FakeCollector()),
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico", kinematics="corexy"),
+        ),
         sessions=sessions,
     )
 
@@ -69,3 +73,27 @@ async def test_chat_service_routes_config_request_to_config_graph() -> None:
     assert len(response.config_proposals) == 1
     assert not diagnosis_graph.calls
     assert config_graph.calls
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_includes_printer_profile_summary() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=_FakeGraph("diagnostics", {}),
+        config_graph=_FakeGraph("config", {}),
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico", kinematics="corexy"),
+        ),
+        sessions=sessions,
+    )
+
+    response = await service.bootstrap(session.session_id)
+
+    assert response.moonraker_reachable is True
+    assert response.printer_profile is not None
+    assert response.printer_profile.firmware_flavor == "Kalico"
+    assert response.printer_profile.kinematics == "corexy"

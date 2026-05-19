@@ -327,6 +327,41 @@ project_checkout_path = $INSTALL_DIR
 printer_data_root = $KLIPPYAI_PRINTER_DATA_ROOT
 mainsail_config_dir = $KLIPPYAI_MAINSAIL_CONFIG_DIR
 
+[printer_identity]
+# Installer-populated printer profile identity. You can edit these later if
+# KlippyAI detected the wrong hardware names or firmware flavor.
+firmware_flavor =
+firmware_version =
+host_model =
+host_distribution =
+mainboard =
+mainboard_mcu =
+toolhead =
+toolhead_board =
+
+[printer_capabilities]
+probe_type = none
+accelerometer = none
+filament_sensor = none
+camera_stack = none
+bed_mesh_configured = false
+input_shaper_configured = false
+canbus_enabled = false
+addons =
+
+[printer_geometry]
+kinematics =
+build_volume_x =
+build_volume_y =
+build_volume_z =
+extruder_count =
+
+[config_context]
+# Optional KlippyAI-only overrides for config collection.
+# Leave blank to use the detected active root config and include tree.
+root_config_file =
+ignore_globs =
+
 [server]
 host = 127.0.0.1
 port = $KLIPPYAI_PORT
@@ -516,6 +551,7 @@ main() {
   require_linux
   require_cmd getent
   require_cmd find
+  require_cmd git
   require_cmd install
   require_cmd systemctl
 
@@ -535,6 +571,7 @@ main() {
   INSTALL_DIR="$(prompt_default "Project checkout path to install from" "$STANDARD_INSTALL_DIR")"
   ensure_no_spaces "$INSTALL_DIR" "Project checkout path"
   [[ -f "$INSTALL_DIR/pyproject.toml" ]] || die "No pyproject.toml found in $INSTALL_DIR."
+  [[ -e "$INSTALL_DIR/.git" ]] || die "$INSTALL_DIR is not a git checkout. Clone the repository before running install.sh."
   run_as_user test -r "$INSTALL_DIR/pyproject.toml" || die "User '$INSTALL_USER' cannot read $INSTALL_DIR."
   run_as_user test -w "$INSTALL_DIR" || die "User '$INSTALL_USER' must be able to write to $INSTALL_DIR."
 
@@ -619,7 +656,7 @@ main() {
 
   log "Creating service data directory."
   run_root install -d -m 755 "$KLIPPYAI_DATA_DIR"
-  run_root chown "$INSTALL_USER" "$KLIPPYAI_DATA_DIR"
+  run_root chown "$INSTALL_USER:$INSTALL_GROUP" "$KLIPPYAI_DATA_DIR"
 
   log "Creating Python virtual environment."
   if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
@@ -635,6 +672,16 @@ main() {
 
   log "Writing ${KLIPPYAI_CFG_PATH}"
   write_cfg_file
+
+  log "Detecting printer profile into ${KLIPPYAI_CFG_PATH}"
+  if ! run_as_user "$INSTALL_DIR/.venv/bin/klippyai-detect-profile" \
+    --config-file "$KLIPPYAI_CFG_PATH" \
+    --moonraker-url "$KLIPPYAI_MOONRAKER_URL" \
+    --printer-data-root "$KLIPPYAI_PRINTER_DATA_ROOT" \
+    --overwrite
+  then
+    warn "Automatic printer profile detection failed. You can edit the printer profile sections in ${KLIPPYAI_CFG_PATH} later."
+  fi
 
   log "Writing ${KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH}"
   write_moonraker_extension_cfg
@@ -679,6 +726,10 @@ Generated nginx snippet:
 Next steps:
 1. Add this line inside the Mainsail nginx server block:
    include /etc/klippyai/nginx-location.conf;
+   Common file locations to edit are often:
+   - /etc/nginx/conf.d/mainsail.conf
+   - /etc/nginx/sites-enabled/mainsail
+   - /etc/nginx/sites-available/mainsail
 2. Test and reload nginx:
    sudo nginx -t && sudo systemctl reload nginx
 3. Restart Moonraker so it reloads the KlippyAI include and allowed-services file:

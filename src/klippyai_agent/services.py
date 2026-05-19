@@ -11,6 +11,7 @@ from klippyai_agent.schemas import (
     ConfigProposal,
     IssueFinding,
     PatchProposal,
+    PrinterProfileSummary,
     UiSessionResponse,
 )
 from klippyai_agent.sessions import InMemorySessionStore
@@ -52,9 +53,12 @@ class ChatService:
                 "artifact-paste",
                 "host-log-collection",
                 "systemd-diagnostics",
+                "printer-profile",
+                "addon-detection",
                 "typed-findings",
                 "langgraph-checkpoints",
             ],
+            printer_profile=PrinterProfileSummary.model_validate(self.workflow_context.profile.to_summary()),
         )
 
     async def chat(self, payload: ChatRequest) -> ChatResponse:

@@ -50,6 +50,10 @@ This repository is currently an early scaffold. What exists today:
 - deterministic rule engine for a small set of common Klipper failures
 - host-side `klippy.log*` and `moonraker.log*` collection with tail-based excerpts
 - optional `systemctl` and `journalctl` diagnostics for Moonraker and Klipper services
+- one-time printer-profile detection during install, persisted into `klippyai.cfg`
+- firmware flavor detection for mainline Klipper, Kalico, and custom forks
+- addon and hardware hint detection for common probes, CAN toolhead boards, and companion services
+- persisted capability and geometry detection for probe type, accelerometer, filament sensor, build volume, extruder count, bed mesh, and input shaper state
 - config assistant workflow with current-config inspection and first-pass managed include proposals across common config categories
 - `systemd` and `nginx` deployment examples
 - guided installer support for a Mainsail custom-navigation link
@@ -72,19 +76,30 @@ What does not exist yet:
 - auto-collect recent `klippy.log*` and `moonraker.log*` files from `printer_data/logs`
 - handle both long-lived active logs and rotated archives, including Kalico-style restart rotation
 - collect `systemctl show` snapshots and recent `journalctl` lines for `moonraker.service` and `klipper.service`
+- include the active Klipper config tree as LLM context during diagnostics, not only during config-generation requests
 - detect common faults deterministically before involving an LLM
 - explain likely causes in plain language
 - suggest next actions ordered by safety and usefulness
 
 ### Config Assistance
 
-- inspect the current printer config tree including `printer.cfg` includes
+- inspect the current printer config tree including the active root config and its include tree
+- auto-detect the active root config and follow its include tree recursively
 - generate first-pass managed include proposals in chat
 - support broad request classes including fan, macro, sensor, probe, heater, input shaper, bed mesh, filament, CAN toolhead, stepper, extruder, and generic scaffolds
 - help users create config snippets for macros, sensors, probes, input shaper, CAN, and similar features
 - explain why a given config option is needed
 - compare current config with the proposed target state
 - generate reviewable diffs instead of freeform destructive writes
+
+### Printer Awareness
+
+- detect firmware flavor from Moonraker update metadata and Klipper repo origin
+- summarize host model, distribution, and static printer identity hints
+- infer kinematics, build volume, extruder count, probe type, accelerometer, filament sensor, camera stack, mainboard MCU hints, toolhead board hints, and common addons once during install
+- persist detected identity into `[printer_identity]` in `klippyai.cfg`
+- persist detected capabilities into `[printer_capabilities]` and geometry into `[printer_geometry]`
+- load the saved printer profile at runtime instead of re-detecting on every request
 
 ### Embedded UI
 
@@ -136,6 +151,18 @@ chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
+The install flow does not patch your nginx server block automatically. Add this line to the Mainsail nginx server block:
+
+```nginx
+include /etc/klippyai/nginx-location.conf;
+```
+
+Common file locations to edit are often:
+
+- `/etc/nginx/conf.d/mainsail.conf`
+- `/etc/nginx/sites-enabled/mainsail`
+- `/etc/nginx/sites-available/mainsail`
+
 The installer currently guides the user through:
 
 - choosing the Linux service user
@@ -150,6 +177,7 @@ The installer currently guides the user through:
 - installing the package
 - writing `/etc/klippyai/klippyai.env`
 - writing `printer_data/config/klippyai.cfg`
+- detecting printer profile data once and persisting it into `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]`
 - writing `klippyai-moonraker.cfg` next to `moonraker.conf` (usually `printer_data/config/klippyai-moonraker.cfg`)
 - appending `[include klippyai-moonraker.cfg]` to `moonraker.conf`
 - adding `klippyai-agent` to `printer_data/moonraker.asvc`
@@ -171,6 +199,12 @@ Important limitations:
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
 - changing `service_user` or `project_checkout_path` in `klippyai.cfg` does not rewrite the systemd unit automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
+
+During uninstall, remove this line from the Mainsail nginx server block if it is still present:
+
+```nginx
+include /etc/klippyai/nginx-location.conf;
+```
 
 ### Recommended Mainsail Integration
 
@@ -264,6 +298,27 @@ The main `klippyai.cfg` values are:
 
 - `service_user`: install metadata for the service account
 - `project_checkout_path`: install metadata for the checkout path
+- `firmware_flavor`: installer-detected firmware flavor
+- `firmware_version`: installer-detected firmware version
+- `host_model`: installer-detected host model hint
+- `host_distribution`: installer-detected host distribution
+- `mainboard`: optional user-declared mainboard model override
+- `mainboard_mcu`: installer-detected mainboard MCU hint
+- `toolhead`: optional user-declared toolhead model override
+- `toolhead_board`: installer-detected toolhead board hint
+- `probe_type`: installer-detected probe family, including explicit `none` when no probe is found
+- `accelerometer`: installer-detected accelerometer family, including explicit `none`
+- `filament_sensor`: installer-detected filament sensor family, including explicit `none`
+- `camera_stack`: installer-detected camera stack, currently `crowsnest` or `none`
+- `bed_mesh_configured`: whether bed mesh is already configured
+- `input_shaper_configured`: whether input shaper is already configured
+- `canbus_enabled`: installer-detected CAN presence flag
+- `addons`: installer-detected addon list
+- `kinematics`: installer-detected printer kinematics
+- `build_volume_x`, `build_volume_y`, `build_volume_z`: installer-detected travel limits from stepper config
+- `extruder_count`: installer-detected extruder section count
+- `root_config_file`: under `[config_context]`, the detected active root config file, overrideable when your root file is not the standard `printer.cfg`
+- `ignore_globs`: under `[config_context]`, optional ignore patterns for KlippyAI context collection, such as backups or archived config directories
 - `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data`
 - `mainsail_config_dir`: Mainsail-editable config directory, usually `/home/<service-user>/printer_data/config`
 - `moonraker_url`: Moonraker base URL, usually `http://127.0.0.1:7125`
@@ -281,6 +336,21 @@ Environment-file values are intentionally minimal:
 
 See [deployment/config/klippyai.cfg.example](deployment/config/klippyai.cfg.example) and [.env.example](.env.example) for the current examples.
 For Moonraker integration, see [deployment/moonraker/klippyai-moonraker.cfg.example](deployment/moonraker/klippyai-moonraker.cfg.example).
+
+The installer auto-populates `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]` once. If KlippyAI misidentifies the printer hardware, capabilities, or firmware flavor, edit those sections in `klippyai.cfg` and restart the service.
+
+Config collection defaults to the active root config file and its include tree. If your config root is nonstandard or you want KlippyAI to skip backup/archive folders, set those under `[config_context]`.
+
+If you want to repopulate the saved printer profile sections from the current host state later, run:
+
+```bash
+source /home/<service-user>/KlippyAI/.venv/bin/activate
+klippyai-detect-profile \
+  --config-file /home/<service-user>/printer_data/config/klippyai.cfg \
+  --moonraker-url http://127.0.0.1:7125 \
+  --printer-data-root /home/<service-user>/printer_data \
+  --overwrite
+```
 
 ## Security Model
 
@@ -313,7 +383,10 @@ The intended security stance is:
 - LangGraph checkpointing is wired toward SQLite for local host installs.
 - Host log collection currently targets direct files under `printer_data/logs` and supports both active and rotated `klippy.log*` / `moonraker.log*`, including Kalico-style restart splits.
 - Systemd diagnostics currently target `systemctl show` plus the last `journalctl` lines for the configured Moonraker and Klipper units.
-- Config assistant currently inspects `printer_data/config`, resolves `printer.cfg` includes, and can return typed config proposals in chat across the main supported feature categories.
+- Config assistant currently inspects `printer_data/config`, follows the active root config include tree, and can return typed config proposals in chat across the main supported feature categories.
+- Printer-profile detection currently runs once during install and uses Moonraker `printer`, `machine`, and `update_manager` APIs together with config parsing and Klipper repo-origin hints.
+- Diagnostics prompts now include the current Klipper config snapshot in addition to logs, system context, and the saved printer profile.
+- Runtime profile awareness now comes from the saved `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]` sections in `klippyai.cfg`.
 - Host-editable runtime config now lives in `printer_data/config/klippyai.cfg`, which is intended to be editable from Mainsail.
 - The current UI can be opened directly at `/klippyai/` or embedded via `/klippyai/embed`.
 

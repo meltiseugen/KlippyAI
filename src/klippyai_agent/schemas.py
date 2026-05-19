@@ -54,6 +54,39 @@ class ConfigProposal(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class DetectedAddonSummary(BaseModel):
+    name: str
+    source: str
+    confidence: str = "medium"
+    detail: str | None = None
+
+
+class PrinterProfileSummary(BaseModel):
+    firmware_flavor: str | None = None
+    firmware_version: str | None = None
+    host_model: str | None = None
+    host_distribution: str | None = None
+    kinematics: str | None = None
+    mainboard: str | None = None
+    mainboard_mcu: str | None = None
+    toolhead: str | None = None
+    toolhead_board: str | None = None
+    probe_type: str | None = None
+    accelerometer: str | None = None
+    filament_sensor: str | None = None
+    camera_stack: str | None = None
+    build_volume_x: float | None = None
+    build_volume_y: float | None = None
+    build_volume_z: float | None = None
+    extruder_count: int | None = None
+    bed_mesh_configured: bool = False
+    input_shaper_configured: bool = False
+    printer_state: str | None = None
+    canbus_enabled: bool = False
+    addons: list[DetectedAddonSummary] = Field(default_factory=list)
+    summary: str = ""
+
+
 class ChatRequest(BaseModel):
     session_id: str
     thread_id: str | None = None
@@ -79,6 +112,7 @@ class BootstrapResponse(BaseModel):
     moonraker_reachable: bool
     expires_at: datetime
     features: list[str]
+    printer_profile: PrinterProfileSummary | None = None
 
 
 class UiSessionResponse(BaseModel):

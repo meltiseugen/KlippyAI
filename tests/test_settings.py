@@ -13,6 +13,20 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "project_checkout_path = /home/pi/KlippyAI\n"
         "printer_data_root = /home/pi/printer_data\n"
         "mainsail_config_dir = /home/pi/printer_data/config\n\n"
+        "[printer_identity]\n"
+        "mainboard = BTT Octopus Pro\n"
+        "toolhead = Stealthburner\n\n"
+        "[printer_capabilities]\n"
+        "probe_type = beacon\n"
+        "filament_sensor = none\n"
+        "bed_mesh_configured = true\n\n"
+        "[printer_geometry]\n"
+        "kinematics = corexy\n"
+        "build_volume_x = 350\n"
+        "extruder_count = 1\n\n"
+        "[config_context]\n"
+        "root_config_file = machines/voron/printer-main.cfg\n"
+        "ignore_globs = backups/**, archive/**\n\n"
         "[server]\n"
         "moonraker_url = http://127.0.0.1:7125\n"
         "port = 9911\n"
@@ -34,6 +48,16 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.root_path == "/klippyai"
     assert settings.printer_data_root == Path("/home/pi/printer_data")
     assert settings.mainsail_config_dir == Path("/home/pi/printer_data/config")
+    assert settings.mainboard == "BTT Octopus Pro"
+    assert settings.toolhead == "Stealthburner"
+    assert settings.probe_type == "beacon"
+    assert settings.filament_sensor == "none"
+    assert settings.bed_mesh_configured is True
+    assert settings.kinematics == "corexy"
+    assert settings.build_volume_x == 350
+    assert settings.extruder_count == 1
+    assert settings.config_root_file == "machines/voron/printer-main.cfg"
+    assert settings.config_ignore_globs == "backups/**, archive/**"
 
     get_settings.cache_clear()
 
