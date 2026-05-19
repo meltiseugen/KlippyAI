@@ -38,6 +38,15 @@ class HostLogCollector:
                 re.compile(r"^Moonraker version: ", re.MULTILINE),
             ),
         ),
+        LogFamily(
+            kind="system_log",
+            active_name="klippyai.log",
+            display_name="KlippyAI",
+            startup_markers=(
+                re.compile(r"^.*Starting KlippyAI", re.MULTILINE),
+                re.compile(r"^.*Application startup complete\.", re.MULTILINE),
+            ),
+        ),
     )
 
     def __init__(

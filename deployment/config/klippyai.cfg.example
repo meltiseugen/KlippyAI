@@ -71,6 +71,10 @@ openai_model = gpt-5.4-mini
 [logs]
 collect_host_logs = true
 logs_dir_name = logs
+agent_log_file_name = klippyai.log
+agent_log_level = INFO
+agent_log_max_bytes = 2097152
+agent_log_backup_count = 5
 log_max_files_per_family = 3
 log_active_tail_bytes = 160000
 log_rotated_tail_bytes = 80000

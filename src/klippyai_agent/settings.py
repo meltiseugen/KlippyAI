@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 3600
     collect_host_logs: bool = True
     logs_dir_name: str = "logs"
+    agent_log_file_name: str = "klippyai.log"
+    agent_log_level: str = "INFO"
+    agent_log_max_bytes: int = 2_097_152
+    agent_log_backup_count: int = 5
     log_max_files_per_family: int = 3
     log_active_tail_bytes: int = 160_000
     log_rotated_tail_bytes: int = 80_000
@@ -100,16 +104,32 @@ class Settings(BaseSettings):
         normalized = str(value).strip()
         return normalized or None
 
+    @field_validator("agent_log_file_name", "agent_log_level", mode="before")
+    @classmethod
+    def _normalize_required_strings(cls, value: Any) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("Logging settings must not be blank.")
+        return normalized
+
     @model_validator(mode="after")
     def _enforce_read_only_runtime(self) -> "Settings":
         # KlippyAI runtime is intentionally shackled for now. Keep the flag for
         # forward compatibility, but do not allow it to enable file writes.
         self.enable_write_actions = False
+        self.agent_log_level = self.agent_log_level.upper()
         return self
+
+    def host_logs_dir(self) -> Path:
+        return self.printer_data_root / self.logs_dir_name
+
+    def agent_log_path(self) -> Path:
+        return self.host_logs_dir() / self.agent_log_file_name
 
     def ensure_directories(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoint_db.parent.mkdir(parents=True, exist_ok=True)
+        self.host_logs_dir().mkdir(parents=True, exist_ok=True)
 
 
 def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:

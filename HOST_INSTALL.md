@@ -98,6 +98,7 @@ The installer will:
 - install and start `klippyai-agent.service`
 - generate `/etc/klippyai/nginx-location.conf`
 - optionally add a Mainsail nav link in `.theme/navi.json`
+- write the KlippyAI runtime log to `printer_data/logs/klippyai.log`
 
 ## 5. Edit nginx
 
@@ -173,6 +174,10 @@ Generated nginx snippet:
 
 - `/etc/klippyai/nginx-location.conf`
 
+KlippyAI runtime log:
+
+- `/home/<service-user>/printer_data/logs/klippyai.log`
+
 ## 9. Change The Model Later
 
 Edit:
@@ -224,6 +229,7 @@ KlippyAI currently:
 
 - reads `klippy.log*`
 - reads `moonraker.log*`
+- writes its own runtime log to `printer_data/logs/klippyai.log`
 - reads current config files
 - reads Moonraker state
 - reads `systemctl` and `journalctl` data for Klipper and Moonraker
@@ -242,6 +248,7 @@ If the service does not start:
 ```bash
 systemctl status klippyai-agent --no-pager
 journalctl -u klippyai-agent -n 200 --no-pager
+tail -n 200 /home/<service-user>/printer_data/logs/klippyai.log
 ```
 
 If Moonraker integration does not show up:

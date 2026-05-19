@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from importlib.resources import files
@@ -14,6 +15,8 @@ from klippyai_agent.container import AppContainer, build_container
 from klippyai_agent.schemas import BootstrapResponse, ChatRequest, ChatResponse, UiSessionResponse
 from klippyai_agent.settings import get_settings
 
+logger = logging.getLogger("klippyai_agent.app")
+
 
 def create_app() -> FastAPI:
     settings = get_settings()
@@ -26,11 +29,22 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        logger.info(
+            "Application startup checkpoint_db=%s printer_data_root=%s host_logs_dir=%s",
+            settings.checkpoint_db,
+            settings.printer_data_root,
+            settings.host_logs_dir(),
+        )
         async with AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_db)) as checkpointer:
             container = build_container(settings, checkpointer)
             app.state.container = container
-            yield
-            await container.aclose()
+            logger.info("Application startup complete.")
+            try:
+                yield
+            finally:
+                logger.info("Application shutdown started.")
+                await container.aclose()
+                logger.info("Application shutdown complete.")
 
     app = FastAPI(
         title=settings.app_name,

@@ -383,6 +383,10 @@ openai_model = $KLIPPYAI_OPENAI_MODEL
 [logs]
 collect_host_logs = $KLIPPYAI_COLLECT_HOST_LOGS
 logs_dir_name = $KLIPPYAI_LOGS_DIR_NAME
+agent_log_file_name = $KLIPPYAI_AGENT_LOG_FILE_NAME
+agent_log_level = $KLIPPYAI_AGENT_LOG_LEVEL
+agent_log_max_bytes = $KLIPPYAI_AGENT_LOG_MAX_BYTES
+agent_log_backup_count = $KLIPPYAI_AGENT_LOG_BACKUP_COUNT
 log_max_files_per_family = $KLIPPYAI_LOG_MAX_FILES_PER_FAMILY
 log_active_tail_bytes = $KLIPPYAI_LOG_ACTIVE_TAIL_BYTES
 log_rotated_tail_bytes = $KLIPPYAI_LOG_ROTATED_TAIL_BYTES
@@ -544,6 +548,7 @@ Root path:            $KLIPPYAI_ROOT_PATH
 Local bind port:      $KLIPPYAI_PORT
 Data dir:             $KLIPPYAI_DATA_DIR
 Runtime mode:         read-only
+KlippyAI log file:    $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
 Mainsail nav link:    $INSTALL_MAINSAIL_NAV
 
 EOF
@@ -601,6 +606,10 @@ main() {
   KLIPPYAI_CHECKPOINT_DB="${KLIPPYAI_DATA_DIR}/checkpoints.sqlite"
   KLIPPYAI_COLLECT_HOST_LOGS="true"
   KLIPPYAI_LOGS_DIR_NAME="logs"
+  KLIPPYAI_AGENT_LOG_FILE_NAME="klippyai.log"
+  KLIPPYAI_AGENT_LOG_LEVEL="INFO"
+  KLIPPYAI_AGENT_LOG_MAX_BYTES="2097152"
+  KLIPPYAI_AGENT_LOG_BACKUP_COUNT="5"
   KLIPPYAI_LOG_MAX_FILES_PER_FAMILY="3"
   KLIPPYAI_LOG_ACTIVE_TAIL_BYTES="160000"
   KLIPPYAI_LOG_ROTATED_TAIL_BYTES="80000"
@@ -720,6 +729,9 @@ Editable config file:
 Generated nginx snippet:
   /etc/klippyai/nginx-location.conf
 
+KlippyAI runtime log:
+  $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
+
 Next steps:
 1. Add this line inside the Mainsail nginx server block:
    include /etc/klippyai/nginx-location.conf;
@@ -734,6 +746,7 @@ Next steps:
 4. Check the services:
    systemctl status $SERVICE_NAME --no-pager
    systemctl status moonraker --no-pager
+   tail -n 100 $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
 5. Open KlippyAI:
    http://<printer-host>${KLIPPYAI_ROOT_PATH}/
 6. After editing ${KLIPPYAI_CFG_PATH}, restart the service:

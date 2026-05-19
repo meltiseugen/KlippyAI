@@ -37,6 +37,23 @@ def test_host_log_collector_reads_active_and_archived_logs(tmp_path: Path) -> No
     assert any("Loaded 2 Klippy log file(s)" in note for note in notes)
 
 
+def test_host_log_collector_detects_klippyai_runtime_logs(tmp_path: Path) -> None:
+    logs_dir = tmp_path / "printer_data" / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "klippyai.log").write_text(
+        "2026-05-19 12:00:00 INFO [klippyai_agent.bootstrap] Starting KlippyAI\n"
+        "2026-05-19 12:00:01 INFO [klippyai_agent.app] Application startup complete.\n",
+        encoding="utf-8",
+    )
+
+    collector = HostLogCollector(tmp_path / "printer_data", max_files_per_family=1)
+    artifacts, notes = collector.collect()
+
+    assert any(artifact.label == "klippyai.log (current)" for artifact in artifacts)
+    assert any("Host log: KlippyAI" in artifact.content for artifact in artifacts)
+    assert any("Loaded 1 KlippyAI log file(s)" in note for note in notes)
+
+
 class _FakeMoonraker:
     async def ping(self) -> bool:
         return True

@@ -34,6 +34,12 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "data_dir = /var/lib/klippyai\n"
         "checkpoint_db = /var/lib/klippyai/checkpoints.sqlite\n"
         "enable_write_actions = true\n\n"
+        "[logs]\n"
+        "logs_dir_name = logs\n"
+        "agent_log_file_name = klippyai.log\n"
+        "agent_log_level = debug\n"
+        "agent_log_max_bytes = 4096\n"
+        "agent_log_backup_count = 2\n\n"
         "[llm]\n"
         "llm_provider = stub\n"
         "openai_model = gpt-5.4-mini\n",
@@ -48,6 +54,8 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.port == 9911
     assert settings.root_path == "/klippyai"
     assert settings.enable_write_actions is False
+    assert settings.agent_log_level == "DEBUG"
+    assert settings.agent_log_path() == Path("/home/pi/printer_data/logs/klippyai.log")
     assert settings.printer_data_root == Path("/home/pi/printer_data")
     assert settings.mainsail_config_dir == Path("/home/pi/printer_data/config")
     assert settings.mainboard == "BTT Octopus Pro"

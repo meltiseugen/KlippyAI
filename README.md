@@ -49,6 +49,7 @@ This repository is currently an early scaffold. What exists today:
 - LangChain provider integration path
 - deterministic rule engine for a small set of common Klipper failures
 - host-side `klippy.log*` and `moonraker.log*` collection with tail-based excerpts
+- runtime file logging to `printer_data/logs/klippyai.log` so host-side debugging is visible from Mainsail
 - optional `systemctl` and `journalctl` diagnostics for Moonraker and Klipper services
 - one-time printer-profile detection during install, persisted into `klippyai.cfg`
 - firmware flavor detection for mainline Klipper, Kalico, and custom forks
@@ -76,6 +77,7 @@ What does not exist yet:
 - auto-collect recent `klippy.log*` and `moonraker.log*` files from `printer_data/logs`
 - handle both long-lived active logs and rotated archives, including Kalico-style restart rotation
 - collect `systemctl show` snapshots and recent `journalctl` lines for `moonraker.service` and `klipper.service`
+- write KlippyAI runtime logs into the same `printer_data/logs` directory used by Klipper-side services
 - include the active Klipper config tree as LLM context during diagnostics, not only during config-generation requests
 - detect common faults deterministically before involving an LLM
 - explain likely causes in plain language
@@ -183,6 +185,7 @@ The installer currently guides the user through:
 - adding `klippyai-agent` to `printer_data/moonraker.asvc`
 - generating and enabling a `systemd` service
 - generating an nginx location snippet for `/klippyai/`
+- writing KlippyAI runtime logs to `printer_data/logs/klippyai.log`
 - optionally installing a Mainsail navigation link in `.theme/navi.json`
 
 The installer always asks for the service user first. Path defaults are then derived from that user, so a `biqu` host will naturally default to `/home/biqu/...` instead of `/home/pi/...`.
@@ -327,6 +330,7 @@ The main `klippyai.cfg` values are:
 - `data_dir`: local KlippyAI data directory
 - `llm_provider`: currently `stub` or `openai`
 - `openai_model`: default OpenAI model name, editable in `klippyai.cfg`
+- `agent_log_file_name`, `agent_log_level`, `agent_log_max_bytes`, `agent_log_backup_count`: control the KlippyAI runtime log file under `printer_data/logs`
 - `enable_write_actions`: reserved for future work and forced to `false` by the runtime
 
 Environment-file values are intentionally minimal:
@@ -383,6 +387,7 @@ The intended security stance is:
 - The default provider is `stub`, so the app can boot without any external API key.
 - LangGraph checkpointing is wired toward SQLite for local host installs.
 - Host log collection currently targets direct files under `printer_data/logs` and supports both active and rotated `klippy.log*` / `moonraker.log*`, including Kalico-style restart splits.
+- KlippyAI itself also writes a rotating runtime log at `printer_data/logs/klippyai.log`, intended to be visible from Mainsail alongside the other printer-host logs.
 - Systemd diagnostics currently target `systemctl show` plus the last `journalctl` lines for the configured Moonraker and Klipper units.
 - Config assistant currently inspects `printer_data/config`, follows the active root config include tree, and can return typed config proposals in chat across the main supported feature categories.
 - The runtime does not apply or write those proposals back to printer files.
