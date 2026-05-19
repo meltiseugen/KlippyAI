@@ -97,3 +97,4 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
     assert response.printer_profile is not None
     assert response.printer_profile.firmware_flavor == "Kalico"
     assert response.printer_profile.kinematics == "corexy"
+    assert "read-only-mode" in response.features

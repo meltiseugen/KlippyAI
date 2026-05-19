@@ -51,6 +51,7 @@ class ChatService:
                 "config-assistant",
                 "current-config-inspection",
                 "artifact-paste",
+                "read-only-mode",
                 "host-log-collection",
                 "systemd-diagnostics",
                 "printer-profile",

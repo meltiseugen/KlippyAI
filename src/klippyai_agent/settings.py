@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     journal_artifact_char_limit: int = 16_000
     system_command_timeout_seconds: float = 6.0
     llm_provider: str = "stub"
-    openai_model: str = "gpt-5-mini"
+    openai_model: str = "gpt-5.4-mini"
     openai_api_key: SecretStr | None = None
     enable_write_actions: bool = False
 
@@ -99,6 +99,13 @@ class Settings(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def _enforce_read_only_runtime(self) -> "Settings":
+        # KlippyAI runtime is intentionally shackled for now. Keep the flag for
+        # forward compatibility, but do not allow it to enable file writes.
+        self.enable_write_actions = False
+        return self
 
     def ensure_directories(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

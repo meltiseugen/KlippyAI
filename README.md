@@ -90,7 +90,7 @@ What does not exist yet:
 - help users create config snippets for macros, sensors, probes, input shaper, CAN, and similar features
 - explain why a given config option is needed
 - compare current config with the proposed target state
-- generate reviewable diffs instead of freeform destructive writes
+- generate review-only config proposals instead of modifying printer files
 
 ### Printer Awareness
 
@@ -326,8 +326,8 @@ The main `klippyai.cfg` values are:
 - `port`: local KlippyAI bind port, default `8811`
 - `data_dir`: local KlippyAI data directory
 - `llm_provider`: currently `stub` or `openai`
-- `openai_model`: default OpenAI model name
-- `enable_write_actions`: currently should remain `false`
+- `openai_model`: default OpenAI model name, editable in `klippyai.cfg`
+- `enable_write_actions`: reserved for future work and forced to `false` by the runtime
 
 Environment-file values are intentionally minimal:
 
@@ -359,7 +359,8 @@ The intended security stance is:
 - provider API keys stay server-side only
 - the browser never gets raw provider credentials
 - host access should come from deterministic tools, not arbitrary shell execution by the LLM
-- config mutations should always go through reviewable diffs and explicit approval
+- the current runtime is intentionally shackled and does not write printer/config files
+- any future config mutations should go through reviewable diffs and explicit approval
 - `v1` should remain diagnostics-first and read-heavy
 
 ## Repository Layout
@@ -384,6 +385,7 @@ The intended security stance is:
 - Host log collection currently targets direct files under `printer_data/logs` and supports both active and rotated `klippy.log*` / `moonraker.log*`, including Kalico-style restart splits.
 - Systemd diagnostics currently target `systemctl show` plus the last `journalctl` lines for the configured Moonraker and Klipper units.
 - Config assistant currently inspects `printer_data/config`, follows the active root config include tree, and can return typed config proposals in chat across the main supported feature categories.
+- The runtime does not apply or write those proposals back to printer files.
 - Printer-profile detection currently runs once during install and uses Moonraker `printer`, `machine`, and `update_manager` APIs together with config parsing and Klipper repo-origin hints.
 - Diagnostics prompts now include the current Klipper config snapshot in addition to logs, system context, and the saved printer profile.
 - Runtime profile awareness now comes from the saved `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]` sections in `klippyai.cfg`.

@@ -396,7 +396,7 @@ class StubConfigAssistantProvider:
                 "[section_name_here]\n"
                 "option_name: <VALUE>\n"
             ),
-            rationale="This generic scaffold keeps the request in a managed include file even when the local stub provider cannot infer a more precise built-in template.",
+            rationale="This generic scaffold formats the request as a managed include snippet even when the local stub provider cannot infer a more precise built-in template.",
             assumptions=[
                 "The request did not map cleanly to a more specific built-in template.",
             ],
@@ -406,7 +406,7 @@ class StubConfigAssistantProvider:
     @staticmethod
     def _build_next_actions(feature: str) -> list[str]:
         common = [
-            "Keep the generated snippet in a managed include file under klippyai/*.cfg.",
+            "Keep the generated snippet formatted as a managed include snippet under klippyai/*.cfg.",
             "Review the current config for overlapping sections before adding this proposal.",
         ]
         feature_specific = {
@@ -510,7 +510,7 @@ class StubConfigAssistantProvider:
             ],
             "generic": [
                 "Which exact printer feature do you want to configure?",
-                "Do you want the proposal as a managed include file under klippyai/*.cfg?",
+                "Do you want the proposal formatted as a managed include snippet under klippyai/*.cfg?",
             ],
         }
         return questions.get(feature, questions["generic"])
@@ -582,7 +582,8 @@ class OpenAIConfigAssistantProvider:
                 "system",
                 (
                     "You are an expert Klipper and Kalico configuration assistant. "
-                    "Generate safe, reviewable config snippets. Prefer managed include files under klippyai/*.cfg. "
+                    "Generate safe, reviewable config snippets only. Prefer managed include snippets under klippyai/*.cfg. "
+                    "Do not imply that you can write files or apply changes directly. "
                     "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
                     "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons."
                 ),

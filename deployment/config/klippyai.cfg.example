@@ -60,11 +60,13 @@ data_dir = /var/lib/klippyai
 checkpoint_db = /var/lib/klippyai/checkpoints.sqlite
 managed_config_dir_name = klippyai
 session_ttl_seconds = 3600
+# KlippyAI runtime is intentionally read-only for now. This is ignored if set true.
 enable_write_actions = false
 
 [llm]
 llm_provider = stub
-openai_model = gpt-5-mini
+# Change this in klippyai.cfg if you want a different OpenAI model.
+openai_model = gpt-5.4-mini
 
 [logs]
 collect_host_logs = true

@@ -372,10 +372,12 @@ data_dir = $KLIPPYAI_DATA_DIR
 checkpoint_db = $KLIPPYAI_CHECKPOINT_DB
 managed_config_dir_name = klippyai
 session_ttl_seconds = 3600
+# KlippyAI runtime is read-only for now. This must remain false.
 enable_write_actions = $KLIPPYAI_ENABLE_WRITE_ACTIONS
 
 [llm]
 llm_provider = $KLIPPYAI_LLM_PROVIDER
+# You can change this later in klippyai.cfg and restart klippyai-agent.
 openai_model = $KLIPPYAI_OPENAI_MODEL
 
 [logs]
@@ -541,7 +543,7 @@ Model:                $KLIPPYAI_OPENAI_MODEL
 Root path:            $KLIPPYAI_ROOT_PATH
 Local bind port:      $KLIPPYAI_PORT
 Data dir:             $KLIPPYAI_DATA_DIR
-Write actions:        $KLIPPYAI_ENABLE_WRITE_ACTIONS
+Runtime mode:         read-only
 Mainsail nav link:    $INSTALL_MAINSAIL_NAV
 
 EOF
@@ -613,7 +615,7 @@ main() {
 
   KLIPPYAI_LLM_PROVIDER="$(prompt_default "LLM provider (currently: openai or stub)" "openai")"
   KLIPPYAI_LLM_PROVIDER="${KLIPPYAI_LLM_PROVIDER,,}"
-  KLIPPYAI_OPENAI_MODEL="$(prompt_default "Model name" "gpt-5-mini")"
+  KLIPPYAI_OPENAI_MODEL="$(prompt_default "Model name" "gpt-5.4-mini")"
   KLIPPYAI_OPENAI_API_KEY=""
 
   case "$KLIPPYAI_LLM_PROVIDER" in
@@ -631,12 +633,7 @@ main() {
       ;;
   esac
 
-  if confirm "Enable write actions now?" "N"; then
-    KLIPPYAI_ENABLE_WRITE_ACTIONS="true"
-    warn "Write actions are not implemented yet. Enabling this now is not recommended for production use."
-  else
-    KLIPPYAI_ENABLE_WRITE_ACTIONS="false"
-  fi
+  KLIPPYAI_ENABLE_WRITE_ACTIONS="false"
 
   if confirm "Install a Mainsail custom-navigation link to KlippyAI?" "Y"; then
     INSTALL_MAINSAIL_NAV="yes"
@@ -753,6 +750,7 @@ If you enabled the Mainsail custom navigation entry:
 Current limitations:
 - the installer generates the reverse-proxy snippet, but it does not patch nginx automatically
 - the optional native Mainsail drawer patch is not installed by this script
+- the KlippyAI runtime is intentionally read-only and will not write printer/config files
 - changing service_user or project_checkout_path in klippyai.cfg does not rewrite systemd automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags like v0.1.0
 

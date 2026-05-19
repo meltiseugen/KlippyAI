@@ -32,10 +32,11 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "port = 9911\n"
         "root_path = /klippyai\n"
         "data_dir = /var/lib/klippyai\n"
-        "checkpoint_db = /var/lib/klippyai/checkpoints.sqlite\n\n"
+        "checkpoint_db = /var/lib/klippyai/checkpoints.sqlite\n"
+        "enable_write_actions = true\n\n"
         "[llm]\n"
         "llm_provider = stub\n"
-        "openai_model = gpt-5-mini\n",
+        "openai_model = gpt-5.4-mini\n",
         encoding="utf-8",
     )
 
@@ -46,6 +47,7 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.config_file == cfg_path
     assert settings.port == 9911
     assert settings.root_path == "/klippyai"
+    assert settings.enable_write_actions is False
     assert settings.printer_data_root == Path("/home/pi/printer_data")
     assert settings.mainsail_config_dir == Path("/home/pi/printer_data/config")
     assert settings.mainboard == "BTT Octopus Pro"
@@ -70,7 +72,7 @@ def test_settings_merge_cfg_with_env_secret(monkeypatch, tmp_path: Path) -> None
         "root_path = /klippyai\n\n"
         "[llm]\n"
         "llm_provider = openai\n"
-        "openai_model = gpt-5-mini\n",
+        "openai_model = gpt-5.4-mini\n",
         encoding="utf-8",
     )
 
