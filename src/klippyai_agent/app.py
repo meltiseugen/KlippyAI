@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from importlib.resources import files
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -23,9 +23,11 @@ def create_app() -> FastAPI:
     settings.ensure_directories()
     os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
 
-    package_root = files("klippyai_agent")
-    templates = Jinja2Templates(directory=str(package_root.joinpath("templates")))
-    static_dir = str(package_root.joinpath("static"))
+    package_dir = Path(__file__).resolve().parent
+    templates = Jinja2Templates(directory=str(package_dir / "templates"))
+    static_dir = package_dir / "static"
+    embed_css = (static_dir / "embed.css").read_text(encoding="utf-8")
+    embed_js = (static_dir / "embed.js").read_text(encoding="utf-8")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -52,10 +54,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         root_path=settings.root_path.rstrip("/"),
     )
-    app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
+    app.mount("/assets", StaticFiles(directory=str(static_dir)), name="assets")
 
-    asset_base = settings.root_path.rstrip("/") if settings.root_path else ""
-    api_base = f"{asset_base}/api" if asset_base else "/api"
+    root_base = settings.root_path.rstrip("/") if settings.root_path else ""
+    api_base = f"{root_base}/api" if root_base else "/api"
 
     @app.get("/", response_class=HTMLResponse)
     async def standalone(request: Request) -> HTMLResponse:
@@ -68,7 +70,8 @@ def create_app() -> FastAPI:
             context={
                 "session_id": ui_session.session_id,
                 "api_base": api_base,
-                "asset_base": asset_base,
+                "embed_css": embed_css,
+                "embed_js": embed_js,
             },
         )
 
@@ -123,7 +126,8 @@ def create_app() -> FastAPI:
             context={
                 "session_id": session_id,
                 "api_base": api_base,
-                "asset_base": asset_base,
+                "embed_css": embed_css,
+                "embed_js": embed_js,
             },
         )
 
