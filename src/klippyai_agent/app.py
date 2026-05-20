@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from importlib.resources import files
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -54,18 +54,12 @@ def create_app() -> FastAPI:
     )
     app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
-    @app.get("/", response_class=HTMLResponse)
-    async def standalone(request: Request) -> HTMLResponse:
+    @app.get("/")
+    async def standalone(request: Request) -> RedirectResponse:
         container = _get_container(request)
         ui_session = await container.chat_service.create_ui_session()
-        return templates.TemplateResponse(
-            request=request,
-            name="standalone.html",
-            context={
-                "embed_path": ui_session.embed_path,
-                "mainsail_href": "/",
-            },
-        )
+        logger.info("Redirecting root UI request to live embed session session_id=%s", ui_session.session_id)
+        return RedirectResponse(url=ui_session.embed_path, status_code=303)
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, object]:
