@@ -192,6 +192,54 @@ remove_line_from_file() {
   log "Updated $path"
 }
 
+remove_trimmed_line_from_file() {
+  local path="$1"
+  local line_to_remove="$2"
+  [[ -f "$path" ]] || return 0
+
+  if ! awk -v needle="$line_to_remove" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      return value
+    }
+    {
+      if (trim($0) == needle) {
+        found = 1
+        exit
+      }
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' "$path"; then
+    return 0
+  fi
+
+  local temp_file
+  temp_file="$(mktemp)"
+  local mode
+  local owner
+  local group
+  mode="$(stat -c '%a' "$path")"
+  owner="$(stat -c '%u' "$path")"
+  group="$(stat -c '%g' "$path")"
+  awk -v needle="$line_to_remove" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      return value
+    }
+    {
+      if (trim($0) != needle) {
+        print $0
+      }
+    }
+  ' "$path" >"$temp_file"
+  backup_file "$path"
+  run_root install -o "$owner" -g "$group" -m "$mode" "$temp_file" "$path"
+  rm -f "$temp_file"
+  log "Updated $path"
+}
+
 detect_moonraker_config_path() {
   local home_dir="$1"
   local config_dir="$2"
@@ -211,6 +259,28 @@ detect_moonraker_config_path() {
   printf '%s' "$config_dir/moonraker.conf"
 }
 
+detect_nginx_server_block_path() {
+  local candidate=""
+
+  for candidate in \
+    /etc/nginx/conf.d/mainsail.conf \
+    /etc/nginx/sites-enabled/mainsail \
+    /etc/nginx/sites-available/mainsail
+  do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+
+  printf '%s' "/etc/nginx/conf.d/mainsail.conf"
+}
+
+reload_nginx() {
+  run_root nginx -t
+  run_root systemctl reload nginx
+}
+
 print_summary() {
   cat <<EOF
 
@@ -225,7 +295,9 @@ Allowed services file: ${KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH:-<not found>}
 Mainsail config dir:   ${KLIPPYAI_MAINSAIL_CONFIG_DIR:-<not found>}
 Data dir:              ${KLIPPYAI_DATA_DIR:-<not found>}
 Project checkout:      ${KLIPPYAI_PROJECT_CHECKOUT_PATH:-<not found>}
+nginx server block:    ${KLIPPYAI_NGINX_SERVER_BLOCK_PATH:-<not found>}
 Remove nav entry:      $REMOVE_MAINSAIL_NAV
+Remove nginx include:  $REMOVE_NGINX_INCLUDE
 Remove data dir:       $REMOVE_DATA_DIR
 Remove nginx snippet:  $REMOVE_NGINX_SNIPPET
 Remove checkout dir:   $REMOVE_CHECKOUT_DIR
@@ -253,6 +325,7 @@ main() {
   KLIPPYAI_PRINTER_DATA_ROOT="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "printer_data_root" || true)"
   KLIPPYAI_PROJECT_CHECKOUT_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "project_checkout_path" || true)"
   KLIPPYAI_SERVICE_USER="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "service_user" || true)"
+  KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "nginx_server_block_path" || true)"
   KLIPPYAI_DATA_DIR="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "server" "data_dir" || true)"
 
   if [[ -z "${KLIPPYAI_SERVICE_USER:-}" ]] && [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != "root" ]]; then
@@ -281,6 +354,9 @@ main() {
   if [[ -z "${KLIPPYAI_MAINSAIL_CONFIG_DIR:-}" ]]; then
     KLIPPYAI_MAINSAIL_CONFIG_DIR="${KLIPPYAI_SERVICE_HOME%/}/printer_data/config"
   fi
+  if [[ -z "${KLIPPYAI_NGINX_SERVER_BLOCK_PATH:-}" ]]; then
+    KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(detect_nginx_server_block_path)"
+  fi
 
   KLIPPYAI_MOONRAKER_CONFIG_PATH="$(detect_moonraker_config_path "$KLIPPYAI_SERVICE_HOME" "$KLIPPYAI_MAINSAIL_CONFIG_DIR")"
   KLIPPYAI_MOONRAKER_CONFIG_DIR="${KLIPPYAI_MOONRAKER_CONFIG_PATH%/*}"
@@ -294,6 +370,12 @@ main() {
     REMOVE_MAINSAIL_NAV="no"
   fi
 
+  if [[ -f "${KLIPPYAI_NGINX_SERVER_BLOCK_PATH:-}" ]] && confirm "Remove the KlippyAI nginx include line from ${KLIPPYAI_NGINX_SERVER_BLOCK_PATH}?" "Y"; then
+    REMOVE_NGINX_INCLUDE="yes"
+  else
+    REMOVE_NGINX_INCLUDE="no"
+  fi
+
   if confirm "Remove the KlippyAI data directory (${KLIPPYAI_DATA_DIR})?" "N"; then
     REMOVE_DATA_DIR="yes"
   else
@@ -304,6 +386,10 @@ main() {
     REMOVE_NGINX_SNIPPET="yes"
   else
     REMOVE_NGINX_SNIPPET="no"
+  fi
+
+  if [[ "$REMOVE_NGINX_SNIPPET" == "yes" && "$REMOVE_NGINX_INCLUDE" != "yes" ]]; then
+    die "Refusing to delete ${NGINX_SNIPPET_PATH} while keeping its nginx include line. Remove the include line first or keep the snippet file."
   fi
 
   if confirm "Delete the project checkout directory (${KLIPPYAI_PROJECT_CHECKOUT_PATH})?" "N"; then
@@ -346,6 +432,12 @@ main() {
   remove_file_if_present "$KLIPPYAI_CFG_PATH"
   remove_file_if_present "$ENV_FILE"
 
+  if [[ "$REMOVE_NGINX_INCLUDE" == "yes" ]]; then
+    remove_trimmed_line_from_file "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH" "include ${NGINX_SNIPPET_PATH};"
+    log "Testing and reloading nginx."
+    reload_nginx
+  fi
+
   if [[ "$REMOVE_NGINX_SNIPPET" == "yes" ]]; then
     remove_file_if_present "$NGINX_SNIPPET_PATH"
   fi
@@ -376,15 +468,9 @@ Removed:
 Manual follow-up:
 1. Restart Moonraker:
    sudo systemctl restart moonraker
-2. Remove this line from the Mainsail nginx server block if it is still present:
-   include ${NGINX_SNIPPET_PATH};
-   Common file locations to edit are often:
-   - /etc/nginx/conf.d/mainsail.conf
-   - /etc/nginx/sites-enabled/mainsail
-   - /etc/nginx/sites-available/mainsail
-3. Test and reload nginx:
+2. If you kept the nginx include line or the snippet file, test and reload nginx:
    sudo nginx -t && sudo systemctl reload nginx
-4. If you kept the checkout directory, you can remove it later manually.
+3. If you kept the checkout directory, you can remove it later manually.
 
 EOF
 }

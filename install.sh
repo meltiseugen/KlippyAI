@@ -226,6 +226,27 @@ ensure_python_venv() {
   die "Python venv support is required for $PYTHON_BIN."
 }
 
+file_has_trimmed_line() {
+  local path="$1"
+  local needle="$2"
+  [[ -f "$path" ]] || return 1
+  awk -v needle="$needle" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      return value
+    }
+    {
+      if (trim($0) == needle) {
+        found = 1
+        exit
+      }
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' "$path"
+}
+
 detect_default_install_user() {
   if [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != "root" ]]; then
     printf '%s' "${SUDO_USER}"
@@ -272,6 +293,23 @@ detect_moonraker_config_path() {
   done
 
   printf '%s' "$config_dir/moonraker.conf"
+}
+
+detect_nginx_server_block_path() {
+  local candidate=""
+
+  for candidate in \
+    /etc/nginx/conf.d/mainsail.conf \
+    /etc/nginx/sites-enabled/mainsail \
+    /etc/nginx/sites-available/mainsail
+  do
+    if [[ -f "$candidate" ]]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+
+  printf '%s' "/etc/nginx/conf.d/mainsail.conf"
 }
 
 detect_printer_data_root() {
@@ -387,6 +425,7 @@ service_user = $INSTALL_USER
 project_checkout_path = $INSTALL_DIR
 printer_data_root = $KLIPPYAI_PRINTER_DATA_ROOT
 mainsail_config_dir = $KLIPPYAI_MAINSAIL_CONFIG_DIR
+nginx_server_block_path = $KLIPPYAI_NGINX_SERVER_BLOCK_PATH
 
 [printer_identity]
 # Installer-populated printer profile identity. You can edit these later if
@@ -409,13 +448,6 @@ bed_mesh_configured = false
 input_shaper_configured = false
 canbus_enabled = false
 addons =
-
-[printer_geometry]
-kinematics =
-build_volume_x =
-build_volume_y =
-build_volume_z =
-extruder_count =
 
 [config_context]
 # Optional KlippyAI-only overrides for config collection.
@@ -577,6 +609,82 @@ EOF
   rm -f "$temp_file"
 }
 
+ensure_nginx_include() {
+  local include_line="include /etc/klippyai/nginx-location.conf;"
+  local path="$KLIPPYAI_NGINX_SERVER_BLOCK_PATH"
+
+  [[ -n "$path" ]] || die "nginx server block path is not set."
+  [[ -f "$path" ]] || die "nginx server block file not found: $path"
+  if file_has_trimmed_line "$path" "$include_line"; then
+    return
+  fi
+
+  local temp_file
+  temp_file="$(mktemp)"
+  if ! awk -v include_line="$include_line" '
+    function strip_comments(value) {
+      sub(/#.*/, "", value)
+      return value
+    }
+    function count_char(value, char,    i, total) {
+      total = 0
+      for (i = 1; i <= length(value); i++) {
+        if (substr(value, i, 1) == char) {
+          total++
+        }
+      }
+      return total
+    }
+    {
+      raw = $0
+      line = strip_comments($0)
+
+      if (!in_server) {
+        if (line ~ /^[[:space:]]*server[[:space:]]*\{/) {
+          in_server = 1
+          depth = count_char(line, "{") - count_char(line, "}")
+          print raw
+          next
+        }
+        print raw
+        next
+      }
+
+      next_depth = depth + count_char(line, "{") - count_char(line, "}")
+      if (!inserted && depth > 0 && next_depth == 0) {
+        print "    " include_line
+        inserted = 1
+      }
+      print raw
+      depth = next_depth
+    }
+    END {
+      if (!inserted) {
+        exit 1
+      }
+    }
+  ' "$path" >"$temp_file"; then
+    rm -f "$temp_file"
+    die "Could not find a server block to patch in $path"
+  fi
+
+  local mode
+  local owner
+  local group
+  mode="$(stat -c '%a' "$path")"
+  owner="$(stat -c '%u' "$path")"
+  group="$(stat -c '%g' "$path")"
+  backup_file "$path"
+  run_root install -o "$owner" -g "$group" -m "$mode" "$temp_file" "$path"
+  rm -f "$temp_file"
+  log "Updated $path"
+}
+
+reload_nginx() {
+  run_root nginx -t
+  run_root systemctl reload nginx
+}
+
 install_mainsail_custom_nav() {
   [[ -n "${KLIPPYAI_MAINSAIL_CONFIG_DIR:-}" ]] || die "Mainsail config directory is not set."
   [[ -d "$KLIPPYAI_MAINSAIL_CONFIG_DIR" ]] || die "Mainsail config directory does not exist: $KLIPPYAI_MAINSAIL_CONFIG_DIR"
@@ -606,6 +714,8 @@ Moonraker ext cfg:    $KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH
 Provider:             $KLIPPYAI_LLM_PROVIDER
 Model:                $KLIPPYAI_OPENAI_MODEL
 Root path:            $KLIPPYAI_ROOT_PATH
+nginx server block:   $KLIPPYAI_NGINX_SERVER_BLOCK_PATH
+Patch nginx include:  $PATCH_NGINX_INCLUDE
 Local bind port:      $KLIPPYAI_PORT
 Data dir:             $KLIPPYAI_DATA_DIR
 Runtime mode:         read-only
@@ -617,10 +727,13 @@ EOF
 
 main() {
   require_linux
+  require_cmd awk
   require_cmd getent
   require_cmd find
   require_cmd git
+  require_cmd grep
   require_cmd install
+  require_cmd stat
   require_cmd systemctl
 
   [[ -f "$SCRIPT_DIR/pyproject.toml" ]] || die "Run this installer from a KlippyAI checkout."
@@ -711,6 +824,16 @@ main() {
     INSTALL_MAINSAIL_NAV="no"
   fi
 
+  if confirm "Patch the Mainsail nginx server block automatically?" "Y"; then
+    PATCH_NGINX_INCLUDE="yes"
+    KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(prompt_default "nginx server block path" "$(detect_nginx_server_block_path)")"
+    ensure_no_spaces "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH" "nginx server block path"
+    [[ -f "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH" ]] || die "nginx server block file not found: $KLIPPYAI_NGINX_SERVER_BLOCK_PATH"
+  else
+    PATCH_NGINX_INCLUDE="no"
+    KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(detect_nginx_server_block_path)"
+  fi
+
   if [[ "$INSTALL_MAINSAIL_NAV" == "yes" ]] && [[ ! -d "$KLIPPYAI_MAINSAIL_CONFIG_DIR" ]]; then
     die "Mainsail config directory does not exist: $KLIPPYAI_MAINSAIL_CONFIG_DIR"
   fi
@@ -778,6 +901,19 @@ main() {
   log "Generating nginx location snippet."
   write_nginx_snippet
 
+  if [[ "$PATCH_NGINX_INCLUDE" == "yes" ]]; then
+    log "Patching nginx server block."
+    ensure_nginx_include
+    log "Testing and reloading nginx."
+    if ! reload_nginx; then
+      if [[ -f "${KLIPPYAI_NGINX_SERVER_BLOCK_PATH}.bak.${TIMESTAMP}" ]]; then
+        warn "nginx validation failed after patching $KLIPPYAI_NGINX_SERVER_BLOCK_PATH. Restoring the previous file."
+        run_root cp "${KLIPPYAI_NGINX_SERVER_BLOCK_PATH}.bak.${TIMESTAMP}" "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH"
+      fi
+      die "nginx validation failed after patching $KLIPPYAI_NGINX_SERVER_BLOCK_PATH."
+    fi
+  fi
+
   if [[ "$INSTALL_MAINSAIL_NAV" == "yes" ]]; then
     log "Installing Mainsail custom navigation entry."
     install_mainsail_custom_nav
@@ -807,24 +943,26 @@ KlippyAI runtime log:
   $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
 
 Next steps:
-1. Add this line inside the Mainsail nginx server block:
-   include /etc/klippyai/nginx-location.conf;
-   Common file locations to edit are often:
-   - /etc/nginx/conf.d/mainsail.conf
-   - /etc/nginx/sites-enabled/mainsail
-   - /etc/nginx/sites-available/mainsail
-2. Test and reload nginx:
-   sudo nginx -t && sudo systemctl reload nginx
-3. Restart Moonraker so it reloads the KlippyAI include and allowed-services file:
+1. Restart Moonraker so it reloads the KlippyAI include and allowed-services file:
    sudo systemctl restart moonraker
-4. Check the services:
+2. Check the services:
    systemctl status $SERVICE_NAME --no-pager
    systemctl status moonraker --no-pager
    tail -n 100 $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
-5. Open KlippyAI:
+3. Open KlippyAI:
    http://<printer-host>${KLIPPYAI_ROOT_PATH}/
-6. After editing ${KLIPPYAI_CFG_PATH}, restart the service:
+4. After editing ${KLIPPYAI_CFG_PATH}, restart the service:
    sudo systemctl restart $SERVICE_NAME
+
+EOF
+
+  if [[ "$PATCH_NGINX_INCLUDE" == "yes" ]]; then
+    cat <<EOF
+
+nginx:
+- Patched: $KLIPPYAI_NGINX_SERVER_BLOCK_PATH
+- Included snippet: /etc/klippyai/nginx-location.conf
+- Reloaded: yes
 
 If you enabled the Mainsail custom navigation entry:
 - reload the Mainsail page after nginx reload
@@ -835,13 +973,41 @@ If you enabled the Mainsail custom navigation entry:
   bash $INSTALL_DIR/integrations/mainsail/install-custom-nav.sh --config-dir $KLIPPYAI_MAINSAIL_CONFIG_DIR --href ${KLIPPYAI_ROOT_PATH%/}/
 
 Current limitations:
-- the installer generates the reverse-proxy snippet, but it does not patch nginx automatically
 - the optional native Mainsail drawer patch is not installed by this script
 - the KlippyAI runtime is intentionally read-only and will not write printer/config files
 - changing service_user or project_checkout_path in klippyai.cfg does not rewrite systemd automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags like v0.1.0
 
 EOF
+  else
+    cat <<EOF
+
+Manual nginx follow-up:
+- Add this line inside the Mainsail nginx server block:
+  include /etc/klippyai/nginx-location.conf;
+- Common file locations are often:
+  - /etc/nginx/conf.d/mainsail.conf
+  - /etc/nginx/sites-enabled/mainsail
+  - /etc/nginx/sites-available/mainsail
+- Test and reload nginx:
+  sudo nginx -t && sudo systemctl reload nginx
+
+If you enabled the Mainsail custom navigation entry:
+- reload the Mainsail page after nginx reload
+- the nav link is stored in ${KLIPPYAI_MAINSAIL_CONFIG_DIR}/.theme/navi.json
+- the agent config is stored in ${KLIPPYAI_CFG_PATH}
+- the Moonraker integration include is stored in ${KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH}
+- you can rerun the helper manually with:
+  bash $INSTALL_DIR/integrations/mainsail/install-custom-nav.sh --config-dir $KLIPPYAI_MAINSAIL_CONFIG_DIR --href ${KLIPPYAI_ROOT_PATH%/}/
+
+Current limitations:
+- the optional native Mainsail drawer patch is not installed by this script
+- the KlippyAI runtime is intentionally read-only and will not write printer/config files
+- changing service_user or project_checkout_path in klippyai.cfg does not rewrite systemd automatically
+- Moonraker update-manager controls work best after the repo has semantic-version tags like v0.1.0
+
+EOF
+  fi
 }
 
 main "$@"

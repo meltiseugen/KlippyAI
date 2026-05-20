@@ -109,14 +109,15 @@ The installer will:
 - add `klippyai-agent` to `printer_data/moonraker.asvc`
 - install and start `klippyai-agent.service`
 - generate `/etc/klippyai/nginx-location.conf`
+- optionally patch the selected Mainsail nginx server block to include that snippet
 - optionally add a Mainsail nav link in `.theme/navi.json`
 - write the KlippyAI runtime log to `printer_data/logs/klippyai.log`
 
 ## 5. Edit nginx
 
-The installer does **not** patch nginx automatically.
+The installer can patch nginx automatically and reload it after a successful config test.
 
-Add this line inside the Mainsail nginx `server` block:
+If you choose not to let the installer patch nginx, add this line inside the Mainsail nginx `server` block manually:
 
 ```nginx
 include /etc/klippyai/nginx-location.conf;
@@ -232,8 +233,9 @@ You can also manually edit these sections in `klippyai.cfg`:
 
 - `[printer_identity]`
 - `[printer_capabilities]`
-- `[printer_geometry]`
 - `[config_context]`
+
+If this host still has an older `[printer_geometry]` section in `klippyai.cfg`, remove that section before restarting `klippyai-agent`.
 
 ## 11. Runtime Behavior
 
@@ -294,13 +296,7 @@ cd /home/<service-user>/KlippyAI
 ./uninstall.sh
 ```
 
-After uninstall, remove this line from your Mainsail nginx `server` block if it is still present:
-
-```nginx
-include /etc/klippyai/nginx-location.conf;
-```
-
-Then reload nginx and restart Moonraker:
+Then reload nginx if needed and restart Moonraker:
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx

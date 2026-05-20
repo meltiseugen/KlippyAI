@@ -20,10 +20,6 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "probe_type = beacon\n"
         "filament_sensor = none\n"
         "bed_mesh_configured = true\n\n"
-        "[printer_geometry]\n"
-        "kinematics = corexy\n"
-        "build_volume_x = 350\n"
-        "extruder_count = 1\n\n"
         "[config_context]\n"
         "root_config_file = machines/voron/printer-main.cfg\n"
         "ignore_globs = backups/**, archive/**\n\n"
@@ -63,9 +59,6 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.probe_type == "beacon"
     assert settings.filament_sensor == "none"
     assert settings.bed_mesh_configured is True
-    assert settings.kinematics == "corexy"
-    assert settings.build_volume_x == 350
-    assert settings.extruder_count == 1
     assert settings.config_root_file == "machines/voron/printer-main.cfg"
     assert settings.config_ignore_globs == "backups/**, archive/**"
 
@@ -93,5 +86,30 @@ def test_settings_merge_cfg_with_env_secret(monkeypatch, tmp_path: Path) -> None
     assert settings.llm_provider == "openai"
     assert settings.openai_api_key is not None
     assert settings.openai_api_key.get_secret_value() == "test-openai-key"
+
+    get_settings.cache_clear()
+
+
+def test_settings_load_without_printer_geometry_section(monkeypatch, tmp_path: Path) -> None:
+    cfg_path = tmp_path / "klippyai.cfg"
+    cfg_path.write_text(
+        "[printer_identity]\n"
+        "mainboard = BTT Octopus Pro\n\n"
+        "[printer_capabilities]\n"
+        "bed_mesh_configured = true\n"
+        "addons = Beacon\n\n"
+        "[server]\n"
+        "port = 8811\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("KLIPPYAI_CONFIG_FILE", str(cfg_path))
+    get_settings.cache_clear()
+    settings = get_settings()
+
+    assert settings.mainboard == "BTT Octopus Pro"
+    assert settings.bed_mesh_configured is True
+    assert settings.addons == "Beacon"
+    assert settings.port == 8811
 
     get_settings.cache_clear()

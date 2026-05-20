@@ -98,9 +98,9 @@ What does not exist yet:
 
 - detect firmware flavor from Moonraker update metadata and Klipper repo origin
 - summarize host model, distribution, and static printer identity hints
-- infer kinematics, build volume, extruder count, probe type, accelerometer, filament sensor, camera stack, mainboard MCU hints, toolhead board hints, and common addons once during install
+- infer probe type, accelerometer, filament sensor, camera stack, mainboard MCU hints, toolhead board hints, and common addons once during install
 - persist detected identity into `[printer_identity]` in `klippyai.cfg`
-- persist detected capabilities into `[printer_capabilities]` and geometry into `[printer_geometry]`
+- persist detected capabilities into `[printer_capabilities]`
 - load the saved printer profile at runtime instead of re-detecting on every request
 
 ### Embedded UI
@@ -157,13 +157,7 @@ chmod +x uninstall.sh
 ./uninstall.sh
 ```
 
-The install flow does not patch your nginx server block automatically. Add this line to the Mainsail nginx server block:
-
-```nginx
-include /etc/klippyai/nginx-location.conf;
-```
-
-Common file locations to edit are often:
+The installer can now patch the Mainsail nginx server block automatically. By default it offers to update one of these common file paths:
 
 - `/etc/nginx/conf.d/mainsail.conf`
 - `/etc/nginx/sites-enabled/mainsail`
@@ -183,12 +177,13 @@ The installer currently guides the user through:
 - installing the package
 - writing `/etc/klippyai/klippyai.env`
 - writing `printer_data/config/klippyai.cfg`
-- detecting printer profile data once and persisting it into `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]`
+- detecting printer profile data once and persisting it into `[printer_identity]` and `[printer_capabilities]`
 - writing `klippyai-moonraker.cfg` next to `moonraker.conf` (usually `printer_data/config/klippyai-moonraker.cfg`)
 - appending `[include klippyai-moonraker.cfg]` to `moonraker.conf`
 - adding `klippyai-agent` to `printer_data/moonraker.asvc`
 - generating and enabling a `systemd` service
 - generating an nginx location snippet for `/klippyai/`
+- optionally patching the selected Mainsail nginx server block to include that snippet
 - writing KlippyAI runtime logs to `printer_data/logs/klippyai.log`
 - optionally installing a Mainsail navigation link in `.theme/navi.json`
 
@@ -204,16 +199,9 @@ After installation, the recommended `v1` flow is:
 
 Important limitations:
 
-- the installer can create the nginx location snippet, but it does not yet patch your Mainsail server block automatically
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
 - changing `service_user` or `project_checkout_path` in `klippyai.cfg` does not rewrite the systemd unit automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
-
-During uninstall, remove this line from the Mainsail nginx server block if it is still present:
-
-```nginx
-include /etc/klippyai/nginx-location.conf;
-```
 
 ### Recommended Mainsail Integration
 
@@ -323,9 +311,6 @@ The main `klippyai.cfg` values are:
 - `input_shaper_configured`: whether input shaper is already configured
 - `canbus_enabled`: installer-detected CAN presence flag
 - `addons`: installer-detected addon list
-- `kinematics`: installer-detected printer kinematics
-- `build_volume_x`, `build_volume_y`, `build_volume_z`: installer-detected travel limits from stepper config
-- `extruder_count`: installer-detected extruder section count
 - `root_config_file`: under `[config_context]`, the detected active root config file, overrideable when your root file is not the standard `printer.cfg`
 - `ignore_globs`: under `[config_context]`, optional ignore patterns for KlippyAI context collection, such as backups or archived config directories
 - `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data`
@@ -347,7 +332,9 @@ Environment-file values are intentionally minimal:
 See [deployment/config/klippyai.cfg.example](deployment/config/klippyai.cfg.example) and [.env.example](.env.example) for the current examples.
 For Moonraker integration, see [deployment/moonraker/klippyai-moonraker.cfg.example](deployment/moonraker/klippyai-moonraker.cfg.example).
 
-The installer auto-populates `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]` once. If KlippyAI misidentifies the printer hardware, capabilities, or firmware flavor, edit those sections in `klippyai.cfg` and restart the service.
+The installer auto-populates `[printer_identity]` and `[printer_capabilities]` once. If KlippyAI misidentifies the printer hardware, capabilities, or firmware flavor, edit those sections in `klippyai.cfg` and restart the service.
+
+If you are upgrading from an older install that still has a `[printer_geometry]` section in `klippyai.cfg`, remove that section before restarting `klippyai-agent`.
 
 Config collection defaults to the active root config file and its include tree. If your config root is nonstandard or you want KlippyAI to skip backup/archive folders, set those under `[config_context]`.
 
@@ -399,7 +386,7 @@ The intended security stance is:
 - The runtime does not apply or write those proposals back to printer files.
 - Printer-profile detection currently runs once during install and uses Moonraker `printer`, `machine`, and `update_manager` APIs together with config parsing and Klipper repo-origin hints.
 - Diagnostics prompts now include the current Klipper config snapshot in addition to logs, system context, and the saved printer profile.
-- Runtime profile awareness now comes from the saved `[printer_identity]`, `[printer_capabilities]`, and `[printer_geometry]` sections in `klippyai.cfg`.
+- Runtime profile awareness now comes from the saved `[printer_identity]` and `[printer_capabilities]` sections in `klippyai.cfg`.
 - Host-editable runtime config now lives in `printer_data/config/klippyai.cfg`, which is intended to be editable from Mainsail.
 - The current UI can be opened directly at `/klippyai/` or embedded via `/klippyai/embed`.
 

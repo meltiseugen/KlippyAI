@@ -48,7 +48,6 @@ class PrinterProfile:
     state_message: str | None = None
     host_model: str | None = None
     host_distribution: str | None = None
-    kinematics: str | None = None
     mainboard: str | None = None
     mainboard_mcu: str | None = None
     toolhead: str | None = None
@@ -57,10 +56,6 @@ class PrinterProfile:
     accelerometer: str | None = None
     filament_sensor: str | None = None
     camera_stack: str | None = None
-    build_volume_x: float | None = None
-    build_volume_y: float | None = None
-    build_volume_z: float | None = None
-    extruder_count: int | None = None
     bed_mesh_configured: bool = False
     input_shaper_configured: bool = False
     services: list[str] = field(default_factory=list)
@@ -88,8 +83,6 @@ class PrinterProfile:
                 parts.append(f"{self.firmware_flavor} {self.firmware_version}")
             else:
                 parts.append(self.firmware_flavor)
-        if self.kinematics:
-            parts.append(self.kinematics)
         if self.toolhead_board:
             parts.append(self.toolhead_board)
         elif self.mainboard:
@@ -129,14 +122,6 @@ class PrinterProfile:
             lines.append(f"Filament sensor: {self.filament_sensor}")
         if self.camera_stack:
             lines.append(f"Camera stack: {self.camera_stack}")
-        if any(value is not None for value in (self.build_volume_x, self.build_volume_y, self.build_volume_z)):
-            dimensions = " x ".join(
-                _format_number(value) if value is not None else "?"
-                for value in (self.build_volume_x, self.build_volume_y, self.build_volume_z)
-            )
-            lines.append(f"Build volume: {dimensions}")
-        if self.extruder_count is not None:
-            lines.append(f"Extruder count: {self.extruder_count}")
         lines.append(f"Bed mesh configured: {'yes' if self.bed_mesh_configured else 'no'}")
         lines.append(f"Input shaper configured: {'yes' if self.input_shaper_configured else 'no'}")
         if self.mcu_names:
@@ -163,7 +148,6 @@ class PrinterProfile:
             "state_message": self.state_message,
             "host_model": self.host_model,
             "host_distribution": self.host_distribution,
-            "kinematics": self.kinematics,
             "mainboard": self.mainboard,
             "mainboard_mcu": self.mainboard_mcu,
             "toolhead": self.toolhead,
@@ -172,10 +156,6 @@ class PrinterProfile:
             "accelerometer": self.accelerometer,
             "filament_sensor": self.filament_sensor,
             "camera_stack": self.camera_stack,
-            "build_volume_x": self.build_volume_x,
-            "build_volume_y": self.build_volume_y,
-            "build_volume_z": self.build_volume_z,
-            "extruder_count": self.extruder_count,
             "bed_mesh_configured": self.bed_mesh_configured,
             "input_shaper_configured": self.input_shaper_configured,
             "services": list(self.services),
@@ -200,7 +180,6 @@ class PrinterProfile:
             "firmware_version": self.firmware_version,
             "host_model": self.host_model,
             "host_distribution": self.host_distribution,
-            "kinematics": self.kinematics,
             "mainboard": self.mainboard,
             "mainboard_mcu": self.mainboard_mcu,
             "toolhead": self.toolhead,
@@ -209,10 +188,6 @@ class PrinterProfile:
             "accelerometer": self.accelerometer,
             "filament_sensor": self.filament_sensor,
             "camera_stack": self.camera_stack,
-            "build_volume_x": self.build_volume_x,
-            "build_volume_y": self.build_volume_y,
-            "build_volume_z": self.build_volume_z,
-            "extruder_count": self.extruder_count,
             "bed_mesh_configured": self.bed_mesh_configured,
             "input_shaper_configured": self.input_shaper_configured,
             "printer_state": self.printer_state,
@@ -249,7 +224,6 @@ class PrinterProfile:
             state_message=str(data.get("state_message")) if data.get("state_message") else None,
             host_model=str(data.get("host_model")) if data.get("host_model") else None,
             host_distribution=str(data.get("host_distribution")) if data.get("host_distribution") else None,
-            kinematics=str(data.get("kinematics")) if data.get("kinematics") else None,
             mainboard=str(data.get("mainboard")) if data.get("mainboard") else None,
             mainboard_mcu=str(data.get("mainboard_mcu")) if data.get("mainboard_mcu") else None,
             toolhead=str(data.get("toolhead")) if data.get("toolhead") else None,
@@ -258,10 +232,6 @@ class PrinterProfile:
             accelerometer=str(data.get("accelerometer")) if data.get("accelerometer") else None,
             filament_sensor=str(data.get("filament_sensor")) if data.get("filament_sensor") else None,
             camera_stack=str(data.get("camera_stack")) if data.get("camera_stack") else None,
-            build_volume_x=_as_optional_float(data.get("build_volume_x")),
-            build_volume_y=_as_optional_float(data.get("build_volume_y")),
-            build_volume_z=_as_optional_float(data.get("build_volume_z")),
-            extruder_count=_as_optional_int(data.get("extruder_count")),
             bed_mesh_configured=_as_bool(data.get("bed_mesh_configured")),
             input_shaper_configured=_as_bool(data.get("input_shaper_configured")),
             services=[str(item) for item in data.get("services", [])],
@@ -281,7 +251,6 @@ def build_profile_from_settings(settings: Settings) -> PrinterProfile:
         firmware_version=settings.firmware_version,
         host_model=settings.host_model,
         host_distribution=settings.host_distribution,
-        kinematics=settings.kinematics,
         mainboard=settings.mainboard,
         mainboard_mcu=settings.mainboard_mcu,
         toolhead=settings.toolhead,
@@ -290,10 +259,6 @@ def build_profile_from_settings(settings: Settings) -> PrinterProfile:
         accelerometer=settings.accelerometer,
         filament_sensor=settings.filament_sensor,
         camera_stack=settings.camera_stack,
-        build_volume_x=settings.build_volume_x,
-        build_volume_y=settings.build_volume_y,
-        build_volume_z=settings.build_volume_z,
-        extruder_count=settings.extruder_count,
         bed_mesh_configured=settings.bed_mesh_configured,
         input_shaper_configured=settings.input_shaper_configured,
         addons=[
@@ -345,17 +310,12 @@ def write_profile_to_cfg(
             "canbus_enabled": "true" if profile.canbus_enabled else "false",
             "addons": ", ".join(addon.name for addon in profile.addons),
         },
-        "printer_geometry": {
-            "kinematics": profile.kinematics or "",
-            "build_volume_x": _format_number(profile.build_volume_x),
-            "build_volume_y": _format_number(profile.build_volume_y),
-            "build_volume_z": _format_number(profile.build_volume_z),
-            "extruder_count": str(profile.extruder_count) if profile.extruder_count is not None else "",
-        },
         "config_context": {
             "root_config_file": root_config_file or "",
         },
     }
+
+    parser.remove_section("printer_geometry")
 
     for section, values in section_values.items():
         if not parser.has_section(section):
@@ -388,38 +348,12 @@ def _split_addon_names(value: str | None) -> list[str]:
     return ordered
 
 
-def _as_optional_float(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_optional_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if value is None:
         return False
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _format_number(value: float | None) -> str:
-    if value is None:
-        return ""
-    if float(value).is_integer():
-        return str(int(value))
-    return str(value)
 
 
 class PrinterProfileCollector:
@@ -510,12 +444,6 @@ class PrinterProfileCollector:
             source = "Moonraker update status" if klipper_version_info else "Klipper git remote"
             evidence.append(ProfileEvidence(f"Firmware flavor detected as {firmware_flavor}.", source, "high"))
 
-        kinematics = self._lookup_option(parsed_config, "printer", "kinematics")
-        if kinematics:
-            evidence.append(ProfileEvidence(f"Kinematics detected as {kinematics}.", "Klipper config", "high"))
-        build_volume_x, build_volume_y, build_volume_z = self._detect_build_volume(parsed_config)
-        extruder_count = self._count_extruders(parsed_config)
-
         host_model = self._detect_host_model(system_info)
         host_distribution = self._detect_distribution(system_info)
         services = self._extract_services(system_info)
@@ -558,14 +486,6 @@ class PrinterProfileCollector:
             evidence.append(ProfileEvidence(f"Accelerometer detected as {accelerometer}.", "Klipper config", "high"))
         if filament_sensor:
             evidence.append(ProfileEvidence(f"Filament sensor detected as {filament_sensor}.", "Klipper config", "high" if filament_sensor != "none" else "medium"))
-        if build_volume_x is not None or build_volume_y is not None or build_volume_z is not None:
-            dimensions = " x ".join(
-                _format_number(value) if value is not None else "?"
-                for value in (build_volume_x, build_volume_y, build_volume_z)
-            )
-            evidence.append(ProfileEvidence(f"Build volume detected as {dimensions}.", "Klipper stepper config", "medium"))
-        if extruder_count is not None:
-            evidence.append(ProfileEvidence(f"Extruder count detected as {extruder_count}.", "Klipper config", "medium"))
         if bed_mesh_configured:
             evidence.append(ProfileEvidence("Bed mesh is configured.", "Klipper config", "high"))
         if input_shaper_configured:
@@ -585,7 +505,6 @@ class PrinterProfileCollector:
             state_message=state_message,
             host_model=host_model,
             host_distribution=host_distribution,
-            kinematics=kinematics,
             mainboard=mainboard,
             mainboard_mcu=mainboard_mcu,
             toolhead=toolhead,
@@ -594,10 +513,6 @@ class PrinterProfileCollector:
             accelerometer=accelerometer,
             filament_sensor=filament_sensor,
             camera_stack=camera_stack,
-            build_volume_x=build_volume_x,
-            build_volume_y=build_volume_y,
-            build_volume_z=build_volume_z,
-            extruder_count=extruder_count,
             bed_mesh_configured=bed_mesh_configured,
             input_shaper_configured=input_shaper_configured,
             services=services,
@@ -757,36 +672,6 @@ class PrinterProfileCollector:
                     }
                 )
         return parsed
-
-    @staticmethod
-    def _lookup_option(parsed: list[dict[str, Any]], section_name: str, option_name: str) -> str | None:
-        target_section = section_name.lower()
-        target_option = option_name.lower()
-        for entry in parsed:
-            if str(entry.get("section", "")).lower() != target_section:
-                continue
-            options = entry.get("options", {})
-            if not isinstance(options, dict):
-                continue
-            value = options.get(target_option)
-            if value:
-                return str(value)
-        return None
-
-    def _detect_build_volume(self, parsed: list[dict[str, Any]]) -> tuple[float | None, float | None, float | None]:
-        return (
-            _as_optional_float(self._lookup_option(parsed, "stepper_x", "position_max")),
-            _as_optional_float(self._lookup_option(parsed, "stepper_y", "position_max")),
-            _as_optional_float(self._lookup_option(parsed, "stepper_z", "position_max")),
-        )
-
-    def _count_extruders(self, parsed: list[dict[str, Any]]) -> int | None:
-        count = 0
-        for entry in parsed:
-            section = str(entry.get("section", "")).lower()
-            if section == "extruder" or re.fullmatch(r"extruder\d+", section):
-                count += 1
-        return count or None
 
     def _detect_probe_type(self, snapshot: ConfigSnapshot, object_names: list[str]) -> str:
         config_sections = [section.lower() for section in snapshot.section_names]

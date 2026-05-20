@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     firmware_version: str | None = None
     host_model: str | None = None
     host_distribution: str | None = None
-    kinematics: str | None = None
     mainboard: str | None = None
     mainboard_mcu: str | None = None
     toolhead: str | None = None
@@ -38,10 +37,6 @@ class Settings(BaseSettings):
     accelerometer: str | None = None
     filament_sensor: str | None = None
     camera_stack: str | None = None
-    build_volume_x: float | None = None
-    build_volume_y: float | None = None
-    build_volume_z: float | None = None
-    extruder_count: int | None = None
     bed_mesh_configured: bool = False
     input_shaper_configured: bool = False
     canbus_enabled: bool = False
@@ -85,7 +80,6 @@ class Settings(BaseSettings):
         "config_ignore_globs",
         "host_model",
         "host_distribution",
-        "kinematics",
         "mainboard",
         "mainboard_mcu",
         "toolhead",

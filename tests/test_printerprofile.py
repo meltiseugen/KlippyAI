@@ -142,7 +142,6 @@ async def test_profile_collector_detects_firmware_addons_and_board_hints(tmp_pat
 
     assert profile.firmware_flavor == "Kalico"
     assert profile.firmware_version == "v1.2.3"
-    assert profile.kinematics == "corexy"
     assert profile.host_model == "Raspberry Pi 4 Model B Rev 1.5"
     assert profile.host_distribution == "Debian GNU/Linux 12"
     assert profile.mainboard_mcu == "Klipper stm32f446xx"
@@ -154,10 +153,6 @@ async def test_profile_collector_detects_firmware_addons_and_board_hints(tmp_pat
     assert profile.camera_stack == "crowsnest"
     assert profile.bed_mesh_configured is True
     assert profile.input_shaper_configured is True
-    assert profile.build_volume_x == 350
-    assert profile.build_volume_y == 350
-    assert profile.build_volume_z == 330
-    assert profile.extruder_count == 1
     assert profile.canbus_enabled is True
     assert "Beacon" in addon_names
     assert "Eddy" in addon_names
@@ -198,7 +193,6 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
         firmware_version="v1.2.3",
         host_model="Raspberry Pi 4",
         host_distribution="Debian 12",
-        kinematics="corexy",
         mainboard="BTT Octopus Pro",
         mainboard_mcu="stm32f446xx",
         toolhead="Stealthburner",
@@ -207,10 +201,6 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
         accelerometer="adxl345",
         filament_sensor="none",
         camera_stack="crowsnest",
-        build_volume_x=350,
-        build_volume_y=350,
-        build_volume_z=330,
-        extruder_count=1,
         bed_mesh_configured=True,
         input_shaper_configured=True,
         canbus_enabled=True,
@@ -224,8 +214,6 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
     assert profile.toolhead == "Stealthburner"
     assert profile.probe_type == "beacon"
     assert profile.filament_sensor == "none"
-    assert profile.build_volume_x == 350
-    assert profile.extruder_count == 1
     assert profile.bed_mesh_configured is True
     assert profile.canbus_enabled is True
     assert [addon.name for addon in profile.addons] == ["Beacon", "Eddy", "Crowsnest"]
@@ -241,7 +229,11 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
         "toolhead =\n"
         "\n[printer_capabilities]\n"
         "canbus_enabled = false\n"
-        "addons =\n",
+        "addons =\n"
+        "\n[printer_geometry]\n"
+        "kinematics = corexy\n"
+        "build_volume_x = 350\n"
+        "extruder_count = 1\n",
         encoding="utf-8",
     )
 
@@ -297,8 +289,6 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
     assert "camera_stack = crowsnest" in contents
     assert "bed_mesh_configured = true" in contents
     assert "input_shaper_configured = true" in contents
-    assert "build_volume_x = 350" in contents
-    assert "build_volume_z = 330" in contents
-    assert "extruder_count = 1" in contents
     assert "canbus_enabled = true" in contents
     assert "root_config_file = printer.cfg" in contents
+    assert "[printer_geometry]" not in contents

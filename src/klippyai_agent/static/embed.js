@@ -95,9 +95,6 @@ function summarizeProfile(profile) {
   if (profile.firmware_flavor) {
     parts.push(profile.firmware_flavor);
   }
-  if (profile.kinematics) {
-    parts.push(profile.kinematics);
-  }
   if (profile.canbus_enabled) {
     parts.push("CAN");
   }

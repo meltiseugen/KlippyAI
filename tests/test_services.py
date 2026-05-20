@@ -56,7 +56,7 @@ async def test_chat_service_routes_config_request_to_config_graph() -> None:
         config_graph=config_graph,
         workflow_context=SimpleNamespace(
             collector=_FakeCollector(),
-            profile=PrinterProfile(firmware_flavor="Kalico", kinematics="corexy"),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
         ),
         sessions=sessions,
     )
@@ -86,7 +86,7 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
         config_graph=_FakeGraph("config", {}),
         workflow_context=SimpleNamespace(
             collector=_FakeCollector(),
-            profile=PrinterProfile(firmware_flavor="Kalico", kinematics="corexy"),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
         ),
         sessions=sessions,
     )
@@ -96,5 +96,4 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
     assert response.moonraker_reachable is True
     assert response.printer_profile is not None
     assert response.printer_profile.firmware_flavor == "Kalico"
-    assert response.printer_profile.kinematics == "corexy"
     assert "read-only-mode" in response.features

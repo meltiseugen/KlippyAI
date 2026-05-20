@@ -37,13 +37,6 @@ input_shaper_configured = false
 canbus_enabled = false
 addons =
 
-[printer_geometry]
-kinematics =
-build_volume_x =
-build_volume_y =
-build_volume_z =
-extruder_count =
-
 [config_context]
 # Optional KlippyAI-only overrides for config collection.
 # Leave blank to use the detected active root config and include tree.
