@@ -1,5 +1,5 @@
 const body = document.body;
-const sessionId = body.dataset.sessionId;
+let sessionId = body.dataset.sessionId || null;
 const apiBase = body.dataset.apiBase;
 const messages = document.getElementById("messages");
 const providerBadge = document.getElementById("provider-badge");
@@ -15,6 +15,29 @@ const shellMenuToggle = document.getElementById("shell-menu-toggle");
 const shellScrim = document.getElementById("shell-scrim");
 const shellNavLinks = Array.from(document.querySelectorAll(".sidebar-nav a"));
 let currentThreadId = null;
+
+async function ensureSessionId(forceRefresh = false) {
+  if (!forceRefresh && sessionId) {
+    return sessionId;
+  }
+
+  const response = await fetch(`${apiBase}/ui-sessions`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Session bootstrap failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  sessionId = payload.session_id;
+  currentThreadId = null;
+  body.dataset.sessionId = sessionId;
+  return sessionId;
+}
 
 function setNavigationOpen(isOpen) {
   body.classList.toggle("nav-open", isOpen);
@@ -132,10 +155,18 @@ function summarizeProfile(profile) {
 }
 
 async function bootstrap() {
-  const response = await fetch(`${apiBase}/bootstrap?session_id=${encodeURIComponent(sessionId)}`);
+  let activeSessionId = await ensureSessionId();
+  let response = await fetch(`${apiBase}/bootstrap?session_id=${encodeURIComponent(activeSessionId)}`);
+
+  if (response.status === 403) {
+    activeSessionId = await ensureSessionId(true);
+    response = await fetch(`${apiBase}/bootstrap?session_id=${encodeURIComponent(activeSessionId)}`);
+  }
+
   if (!response.ok) {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
+
   const payload = await response.json();
   providerBadge.textContent = `Provider: ${payload.provider}`;
   moonrakerBadge.textContent = payload.moonraker_reachable
@@ -154,8 +185,16 @@ async function sendMessage() {
     return;
   }
 
+  let activeSessionId;
+  try {
+    activeSessionId = await ensureSessionId();
+  } catch (error) {
+    appendMessage("assistant", String(error));
+    return;
+  }
+
   const request = {
-    session_id: sessionId,
+    session_id: activeSessionId,
     message,
     artifacts: [],
   };
@@ -176,13 +215,25 @@ async function sendMessage() {
   sendButton.disabled = true;
 
   try {
-    const response = await fetch(`${apiBase}/chat`, {
+    let response = await fetch(`${apiBase}/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
+
+    if (response.status === 403) {
+      request.session_id = await ensureSessionId(true);
+      delete request.thread_id;
+      response = await fetch(`${apiBase}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+    }
 
     if (!response.ok) {
       const errorBody = await response.text();

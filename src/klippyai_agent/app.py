@@ -145,14 +145,11 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def standalone(request: Request) -> HTMLResponse:
-        container = _get_container(request)
-        ui_session = await container.chat_service.create_ui_session()
-        logger.info("Serving root UI session session_id=%s", ui_session.session_id)
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             request=request,
             name="embed.html",
             context={
-                "session_id": ui_session.session_id,
+                "session_id": "",
                 "api_base": api_base,
                 "embed_css": embed_css,
                 "embed_js": embed_js,
@@ -161,6 +158,8 @@ def create_app() -> FastAPI:
                 "shell_klippyai_href": f"{root_base}/" if root_base else "/",
             },
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, object]:
@@ -193,25 +192,13 @@ def create_app() -> FastAPI:
 
     @app.get("/embed", response_class=HTMLResponse)
     async def embed(request: Request, session: str | None = None) -> HTMLResponse:
-        container = _get_container(request)
-        if session and container.sessions.exists(session):
-            session_id = session
-        else:
-            ui_session = await container.chat_service.create_ui_session()
-            session_id = ui_session.session_id
-            if session:
-                logger.info(
-                    "Replacing invalid or expired embed session requested_session_id=%s new_session_id=%s",
-                    session,
-                    session_id,
-                )
-            else:
-                logger.info("Serving embed UI without preexisting session session_id=%s", session_id)
-        return templates.TemplateResponse(
+        if session:
+            logger.info("Serving embed UI with hinted session_id=%s; client will bootstrap a fresh session if needed", session)
+        response = templates.TemplateResponse(
             request=request,
             name="embed.html",
             context={
-                "session_id": session_id,
+                "session_id": session or "",
                 "api_base": api_base,
                 "embed_css": embed_css,
                 "embed_js": embed_js,
@@ -220,6 +207,8 @@ def create_app() -> FastAPI:
                 "shell_klippyai_href": f"{root_base}/" if root_base else "/",
             },
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     return app
 
