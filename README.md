@@ -142,9 +142,13 @@ Planned provider support is tracked in [BACKLOG.md](BACKLOG.md).
 Clone the repository onto the Linux host that already runs Moonraker and Mainsail or Fluidd, then run:
 
 ```bash
+chmod +x deployment/python/install-python310.sh
+./deployment/python/install-python310.sh  # only needed when the host python3 is older than 3.10
 chmod +x install.sh
 ./install.sh
 ```
+
+Detailed host guidance for that helper lives in [docs/python310-install.md](docs/python310-install.md).
 
 To remove a host install later:
 
@@ -187,6 +191,8 @@ The installer currently guides the user through:
 - generating an nginx location snippet for `/klippyai/`
 - writing KlippyAI runtime logs to `printer_data/logs/klippyai.log`
 - optionally installing a Mainsail navigation link in `.theme/navi.json`
+
+KlippyAI requires Python `3.10+`. The installer now checks that explicitly and recreates an older `.venv` if a previous attempt bootstrapped one with Python `3.9` or older. For Bullseye-era printer images such as BIGTREETECH CB1, use [deployment/python/install-python310.sh](deployment/python/install-python310.sh) or follow [docs/python310-install.md](docs/python310-install.md) before rerunning `./install.sh`.
 
 The installer always asks for the service user first. Path defaults are then derived from that user, so a `biqu` host will naturally default to `/home/biqu/...` instead of `/home/pi/...`.
 
@@ -256,7 +262,7 @@ chmod +x ./integrations/mainsail/apply-patch.sh
 #### Windows PowerShell
 
 ```powershell
-python -m venv .venv
+py -3.10 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -e .[dev]
 Copy-Item .env.example .env
@@ -266,7 +272,7 @@ python -m klippyai_agent
 #### Linux
 
 ```bash
-python3 -m venv .venv
+python3.10 -m venv .venv  # or any newer python3.x
 source .venv/bin/activate
 pip install -e .[dev]
 cp .env.example .env

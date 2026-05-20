@@ -6,6 +6,8 @@ PROJECT_NAME="KlippyAI"
 SERVICE_NAME="klippyai-agent"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+MIN_PYTHON_VERSION="3.10"
+PYTHON_BIN=""
 
 log() {
   printf '[%s] %s\n' "$PROJECT_NAME" "$*"
@@ -133,36 +135,95 @@ ensure_numeric_port() {
   fi
 }
 
-maybe_install_python_packages() {
+python_version_string() {
+  local python_bin="$1"
+  "$python_bin" -c 'import sys; print(".".join(str(part) for part in sys.version_info[:3]))'
+}
+
+python_is_supported() {
+  local python_bin="$1"
+  "$python_bin" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+}
+
+detect_python_interpreter() {
+  local candidate=""
+
+  for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && python_is_supported "$candidate"; then
+      PYTHON_BIN="$candidate"
+      return
+    fi
+  done
+
   if command -v python3 >/dev/null 2>&1; then
+    die "KlippyAI requires Python ${MIN_PYTHON_VERSION}+ but python3 is $(python_version_string python3). Install Python ${MIN_PYTHON_VERSION}+ and the matching venv module, or run ./deployment/python/install-python310.sh, then rerun."
+  fi
+
+  die "KlippyAI requires Python ${MIN_PYTHON_VERSION}+. Install it manually or run ./deployment/python/install-python310.sh."
+}
+
+python_venv_package_name() {
+  local python_bin="$1"
+  case "$python_bin" in
+    python3.[0-9]|python3.[0-9][0-9])
+      printf '%s-venv' "$python_bin"
+      ;;
+    *)
+      printf '%s' "python3-venv"
+      ;;
+  esac
+}
+
+have_python_command() {
+  local candidate=""
+
+  for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+maybe_install_python_packages() {
+  if have_python_command; then
     return
   fi
 
   if command -v apt-get >/dev/null 2>&1; then
-    if confirm "python3 is missing. Install python3, python3-venv, and python3-pip with apt?" "Y"; then
+    if confirm "No Python 3 interpreter was found. Install the distro default python3, python3-venv, and python3-pip packages with apt? KlippyAI will verify that the version is ${MIN_PYTHON_VERSION}+." "Y"; then
       run_root apt-get update
       run_root apt-get install -y python3 python3-venv python3-pip
       return
     fi
   fi
 
-  die "python3 is required."
+  die "Python ${MIN_PYTHON_VERSION}+ is required."
 }
 
 ensure_python_venv() {
-  if python3 -m venv --help >/dev/null 2>&1; then
+  local venv_package=""
+
+  if "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
     return
   fi
 
+  venv_package="$(python_venv_package_name "$PYTHON_BIN")"
   if command -v apt-get >/dev/null 2>&1; then
-    if confirm "python3-venv is missing. Install python3-venv with apt?" "Y"; then
+    if confirm "Python venv support is missing for $PYTHON_BIN. Install $venv_package with apt?" "Y"; then
       run_root apt-get update
-      run_root apt-get install -y python3-venv
-      return
+      run_root apt-get install -y "$venv_package"
+      if "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+        return
+      fi
     fi
   fi
 
-  die "python3 venv support is required."
+  die "Python venv support is required for $PYTHON_BIN."
 }
 
 detect_default_install_user() {
@@ -658,20 +719,33 @@ main() {
   confirm "Proceed with installation?" "Y" || die "Installation cancelled."
 
   maybe_install_python_packages
+  detect_python_interpreter
   ensure_python_venv
+  log "Using Python interpreter: $PYTHON_BIN ($(python_version_string "$PYTHON_BIN"))"
 
   log "Creating service data directory."
   run_root install -d -m 755 "$KLIPPYAI_DATA_DIR"
   run_root chown "$INSTALL_USER:$INSTALL_GROUP" "$KLIPPYAI_DATA_DIR"
 
   log "Creating Python virtual environment."
+  if [[ -d "$INSTALL_DIR/.venv" ]]; then
+    if [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+      warn "Existing virtual environment at $INSTALL_DIR/.venv is incomplete."
+      confirm "Recreate the virtual environment?" "Y" || die "Installation cancelled."
+      run_as_user rm -rf "$INSTALL_DIR/.venv"
+    elif ! python_is_supported "$INSTALL_DIR/.venv/bin/python"; then
+      warn "Existing virtual environment uses Python $(python_version_string "$INSTALL_DIR/.venv/bin/python"), but KlippyAI requires Python ${MIN_PYTHON_VERSION}+."
+      confirm "Recreate the virtual environment with $PYTHON_BIN?" "Y" || die "Installation cancelled."
+      run_as_user rm -rf "$INSTALL_DIR/.venv"
+    fi
+  fi
   if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
-    run_as_user python3 -m venv "$INSTALL_DIR/.venv"
+    run_as_user "$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"
   fi
 
   log "Installing Python package into the virtual environment."
-  run_as_user "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip
-  run_as_user "$INSTALL_DIR/.venv/bin/pip" install -e "$INSTALL_DIR"
+  run_as_user "$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip
+  run_as_user "$INSTALL_DIR/.venv/bin/python" -m pip install -e "$INSTALL_DIR"
 
   log "Writing /etc/klippyai/klippyai.env"
   write_env_file

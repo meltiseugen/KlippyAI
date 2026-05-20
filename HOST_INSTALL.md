@@ -22,9 +22,11 @@ The host should already have:
 
 The installer can help install:
 
-- `python3`
-- `python3-venv`
+- `python3` when the distro default is already Python `3.10+`
+- the matching `venv` package for that interpreter, for example `python3-venv`, `python3.10-venv`, or `python3.11-venv`
 - `python3-pip`
+
+KlippyAI requires Python `3.10+`. If `python3 --version` reports `3.9` or older, run [docs/python310-install.md](docs/python310-install.md) or `./deployment/python/install-python310.sh` first, then rerun the installer.
 
 You also need:
 
@@ -38,7 +40,7 @@ Run on the printer host:
 cd /home/<service-user>
 git clone https://github.com/meltiseugen/KlippyAI.git
 cd KlippyAI
-chmod +x install.sh uninstall.sh
+chmod +x install.sh uninstall.sh deployment/python/install-python310.sh
 ```
 
 Example for a common `biqu` host:
@@ -47,14 +49,24 @@ Example for a common `biqu` host:
 cd /home/biqu
 git clone https://github.com/meltiseugen/KlippyAI.git
 cd KlippyAI
-chmod +x install.sh uninstall.sh
+chmod +x install.sh uninstall.sh deployment/python/install-python310.sh
 ```
 
 ## 3. Run The Installer
 
+If the host only has Python `3.9`, install Python `3.10` first:
+
+```bash
+./deployment/python/install-python310.sh
+```
+
+On CB1 and other Bullseye-era printer images, this helper usually builds Python `3.10` from source with `altinstall` so the system `python3` remains untouched.
+
 ```bash
 ./install.sh
 ```
+
+If a previous install attempt created `.venv` with Python `3.9` or older, the updated installer will detect that and offer to recreate it.
 
 The installer will ask for:
 
