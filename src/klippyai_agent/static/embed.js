@@ -11,7 +11,34 @@ const artifactInput = document.getElementById("artifact-input");
 const artifactKind = document.getElementById("artifact-kind");
 const artifactLabel = document.getElementById("artifact-label");
 const template = document.getElementById("message-template");
+const shellMenuToggle = document.getElementById("shell-menu-toggle");
+const shellScrim = document.getElementById("shell-scrim");
+const shellNavLinks = Array.from(document.querySelectorAll(".sidebar-nav a"));
 let currentThreadId = null;
+
+function setNavigationOpen(isOpen) {
+  body.classList.toggle("nav-open", isOpen);
+}
+
+function initializeShellNavigation() {
+  if (shellMenuToggle) {
+    shellMenuToggle.addEventListener("click", () => {
+      setNavigationOpen(!body.classList.contains("nav-open"));
+    });
+  }
+
+  if (shellScrim) {
+    shellScrim.addEventListener("click", () => {
+      setNavigationOpen(false);
+    });
+  }
+
+  for (const link of shellNavLinks) {
+    link.addEventListener("click", () => {
+      setNavigationOpen(false);
+    });
+  }
+}
 
 function appendMessage(role, text) {
   const fragment = template.content.cloneNode(true);
@@ -176,6 +203,8 @@ async function sendMessage() {
 sendButton.addEventListener("click", () => {
   void sendMessage();
 });
+
+initializeShellNavigation();
 
 void bootstrap().catch((error) => {
   appendMessage("assistant", String(error));

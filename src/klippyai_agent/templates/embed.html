@@ -7,60 +7,123 @@
     <style>{{ embed_css | safe }}</style>
   </head>
   <body data-session-id="{{ session_id }}" data-api-base="{{ api_base }}">
-    <main class="shell">
-      <header class="hero">
-        <div>
-          <p class="eyebrow">KlippyAI</p>
-          <h1>Printer diagnostics, inside the shell.</h1>
-        </div>
-        <div class="status-panel">
-          <span id="provider-badge" class="badge">Provider: loading</span>
-          <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
-          <span id="profile-badge" class="badge muted">Profile: loading</span>
-        </div>
-      </header>
+    <div class="app-shell">
+      <aside id="shell-sidebar" class="sidebar">
+        <a class="brand-lockup" href="{{ shell_home_href }}">
+          <span class="brand-mark" aria-hidden="true">
+            <span class="brand-mark-bar bar-a"></span>
+            <span class="brand-mark-bar bar-b"></span>
+            <span class="brand-mark-bar bar-c"></span>
+          </span>
+          <span class="brand-copy">
+            <span class="brand-label">Mainsail-style shell</span>
+            <strong class="brand-title">KlippyAI</strong>
+          </span>
+        </a>
 
-      <section id="messages" class="messages">
-        <article class="message assistant">
-          <div class="message-meta">assistant</div>
-          <p>Paste log snippets, config excerpts, ask what failed, or ask for config help like "generate me a config for a fan".</p>
-        </article>
+        <nav class="sidebar-nav" aria-label="Mainsail navigation">
+          {% for item in shell_nav_items %}
+          <a href="{{ item.href }}" class="nav-item{% if item.active %} active{% endif %}">
+            <span class="nav-icon">{{ item.icon_svg | safe }}</span>
+            <span class="nav-label">{{ item.label }}</span>
+          </a>
+          {% endfor %}
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>KlippyAI keeps Mainsail unmodified and mirrors the navigation locally.</p>
+          <a class="sidebar-footer-link" href="{{ shell_home_href }}">Open Mainsail dashboard</a>
+        </div>
+      </aside>
+
+      <button id="shell-scrim" class="shell-scrim" type="button" aria-label="Close navigation"></button>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div class="topbar-leading">
+            <button id="shell-menu-toggle" class="menu-toggle" type="button" aria-label="Toggle navigation">
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+            <div class="topbar-copy">
+              <p class="topbar-eyebrow">KlippyAI</p>
+              <h1 class="topbar-title">Diagnostics workspace</h1>
+            </div>
+          </div>
+
+          <div class="topbar-actions">
+            <a class="topbar-link" href="{{ shell_home_href }}">Dashboard</a>
+            <a class="topbar-link strong" href="{{ shell_klippyai_href }}">Reset shell</a>
+          </div>
+        </header>
+
+        <main class="workspace-main">
+          <section class="hero-panel">
+            <div class="hero-copy">
+              <p class="eyebrow">KlippyAI</p>
+              <h2>Printer diagnostics, inside the shell.</h2>
+              <p class="hero-summary">
+                Ask what failed, paste log excerpts, or request config help while keeping a Mainsail-like navigation shell around the workspace.
+              </p>
+            </div>
+
+            <div class="status-panel">
+              <span id="provider-badge" class="badge">Provider: loading</span>
+              <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
+              <span id="profile-badge" class="badge muted">Profile: loading</span>
+            </div>
+          </section>
+
+          <section id="messages" class="messages">
+            <article class="message assistant">
+              <div class="message-meta">assistant</div>
+              <div class="message-body">
+                Paste log snippets, config excerpts, ask what failed, or ask for config help like "generate me a config for a fan".
+              </div>
+            </article>
+          </section>
+
+          <section class="composer-shell">
+            <div class="composer-column">
+              <label class="field">
+                <span>Question</span>
+                <textarea id="message-input" rows="5" placeholder="Why is the printer shutting down during homing?"></textarea>
+              </label>
+
+              <div class="actions">
+                <button id="send-button" type="button">Analyze</button>
+              </div>
+            </div>
+
+            <div class="composer-column">
+              <div class="artifact-grid">
+                <label class="field">
+                  <span>Artifact type</span>
+                  <select id="artifact-kind">
+                    <option value="klippy_log">klippy.log</option>
+                    <option value="moonraker_log">moonraker.log</option>
+                    <option value="system_log">system.log</option>
+                    <option value="config_snippet">config snippet</option>
+                    <option value="notes">notes</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span>Artifact label</span>
+                  <input id="artifact-label" type="text" value="clipboard" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Pasted artifact</span>
+                <textarea id="artifact-input" rows="8" placeholder="Paste a log excerpt or config block here"></textarea>
+              </label>
+            </div>
+          </section>
+        </main>
       </section>
-
-      <section class="composer-shell">
-        <label class="field">
-          <span>Question</span>
-          <textarea id="message-input" rows="4" placeholder="Why is the printer shutting down during homing?"></textarea>
-        </label>
-
-        <div class="artifact-grid">
-          <label class="field">
-            <span>Artifact type</span>
-            <select id="artifact-kind">
-              <option value="klippy_log">klippy.log</option>
-              <option value="moonraker_log">moonraker.log</option>
-              <option value="system_log">system.log</option>
-              <option value="config_snippet">config snippet</option>
-              <option value="notes">notes</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Artifact label</span>
-            <input id="artifact-label" type="text" value="clipboard" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span>Pasted artifact</span>
-          <textarea id="artifact-input" rows="8" placeholder="Paste a log excerpt or config block here"></textarea>
-        </label>
-
-        <div class="actions">
-          <button id="send-button" type="button">Analyze</button>
-        </div>
-      </section>
-    </main>
+    </div>
 
     <template id="message-template">
       <article class="message">
