@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from importlib.resources import files
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -54,12 +54,23 @@ def create_app() -> FastAPI:
     )
     app.mount("/assets", StaticFiles(directory=static_dir), name="assets")
 
-    @app.get("/")
-    async def standalone(request: Request) -> RedirectResponse:
+    asset_base = settings.root_path.rstrip("/") if settings.root_path else ""
+    api_base = f"{asset_base}/api" if asset_base else "/api"
+
+    @app.get("/", response_class=HTMLResponse)
+    async def standalone(request: Request) -> HTMLResponse:
         container = _get_container(request)
         ui_session = await container.chat_service.create_ui_session()
-        logger.info("Redirecting root UI request to live embed session session_id=%s", ui_session.session_id)
-        return RedirectResponse(url=ui_session.embed_path, status_code=303)
+        logger.info("Serving root UI session session_id=%s", ui_session.session_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="embed.html",
+            context={
+                "session_id": ui_session.session_id,
+                "api_base": api_base,
+                "asset_base": asset_base,
+            },
+        )
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, object]:
@@ -91,18 +102,28 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     @app.get("/embed", response_class=HTMLResponse)
-    async def embed(session: str, request: Request) -> HTMLResponse:
+    async def embed(request: Request, session: str | None = None) -> HTMLResponse:
         container = _get_container(request)
-        if not container.sessions.exists(session):
-            raise HTTPException(status_code=403, detail="Invalid or expired session.")
-
-        api_base = f"{settings.root_path.rstrip('/')}/api" if settings.root_path else "/api"
+        if session and container.sessions.exists(session):
+            session_id = session
+        else:
+            ui_session = await container.chat_service.create_ui_session()
+            session_id = ui_session.session_id
+            if session:
+                logger.info(
+                    "Replacing invalid or expired embed session requested_session_id=%s new_session_id=%s",
+                    session,
+                    session_id,
+                )
+            else:
+                logger.info("Serving embed UI without preexisting session session_id=%s", session_id)
         return templates.TemplateResponse(
             request=request,
             name="embed.html",
             context={
-                "session_id": session,
+                "session_id": session_id,
                 "api_base": api_base,
+                "asset_base": asset_base,
             },
         )
 

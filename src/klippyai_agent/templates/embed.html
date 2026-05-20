@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>KlippyAI</title>
-    <link rel="stylesheet" href="{{ request.url_for('assets', path='embed.css') }}" />
+    <link rel="stylesheet" href="{{ asset_base }}/assets/embed.css" />
   </head>
   <body data-session-id="{{ session_id }}" data-api-base="{{ api_base }}">
     <main class="shell">
@@ -69,6 +69,6 @@
       </article>
     </template>
 
-    <script src="{{ request.url_for('assets', path='embed.js') }}"></script>
+    <script src="{{ asset_base }}/assets/embed.js"></script>
   </body>
 </html>
