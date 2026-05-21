@@ -169,6 +169,14 @@ If you enabled the Mainsail nav link:
 - reload the Mainsail page
 - click `KlippyAI`
 
+Optional OctoEverywhere path:
+
+- if you want the main OctoEverywhere printer portal to serve
+  `https://<printer>.octoeverywhere.com/klippyai/` without using a Shared
+  Connection URL, see
+  [integrations/octoeverywhere/README.md](integrations/octoeverywhere/README.md)
+  and apply the local OE host patch from this repo
+
 ## 8. Important Files
 
 Editable runtime config:

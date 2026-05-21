@@ -245,6 +245,21 @@ chmod +x ./integrations/mainsail/apply-patch.sh
 ./integrations/mainsail/apply-patch.sh /path/to/mainsail
 ```
 
+### Optional OctoEverywhere Host Patch
+
+If you want the main OctoEverywhere printer portal to open KlippyAI at
+`/klippyai/` without using a Shared Connection URL, the repository now includes
+an unsupported host-side patch bundle in
+[integrations/octoeverywhere/README.md](integrations/octoeverywhere/README.md).
+
+This patch modifies the local OctoEverywhere checkout, not Mainsail itself. It
+adds a `/klippyai/... -> 127.0.0.1:8811/...` route inside OctoEverywhere's
+Moonraker-side router and forces a full browser navigation for the `KlippyAI`
+sidebar entry when loaded via `*.octoeverywhere.com`.
+
+Use it only if you are comfortable carrying a local OctoEverywhere patch across
+future OE updates.
+
 ### Manual Development Install
 
 #### Windows PowerShell
