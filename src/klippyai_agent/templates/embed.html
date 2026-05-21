@@ -16,7 +16,7 @@
             <span class="brand-mark-bar bar-c"></span>
           </span>
           <span class="brand-copy">
-            <span class="brand-label">Mainsail-style shell</span>
+            <span class="brand-label">Mainsail integration</span>
             <strong class="brand-title">KlippyAI</strong>
           </span>
         </a>
@@ -31,7 +31,7 @@
         </nav>
 
         <div class="sidebar-footer">
-          <p>KlippyAI keeps Mainsail unmodified and mirrors the navigation locally.</p>
+          <p>KlippyAI mirrors your Mainsail links locally without patching the frontend.</p>
           <a class="sidebar-footer-link" href="{{ shell_home_href }}">Open Mainsail dashboard</a>
         </div>
       </aside>
@@ -48,7 +48,7 @@
             </button>
             <div class="topbar-copy">
               <p class="topbar-eyebrow">KlippyAI</p>
-              <h1 class="topbar-title">Diagnostics workspace</h1>
+              <h1 class="topbar-title">Diagnostics</h1>
             </div>
           </div>
 
@@ -62,9 +62,9 @@
           <section class="hero-panel">
             <div class="hero-copy">
               <p class="eyebrow">KlippyAI</p>
-              <h2>Printer diagnostics, inside the shell.</h2>
+              <h2>Diagnostics and configuration help.</h2>
               <p class="hero-summary">
-                Ask what failed, paste log excerpts, or request config help while keeping a Mainsail-like navigation shell around the workspace.
+                Ask what failed or request config help. KlippyAI automatically includes the configured tail from current host log files, and you can paste extra config or log text directly into the question box when needed.
               </p>
             </div>
 
@@ -75,50 +75,42 @@
             </div>
           </section>
 
-          <section id="messages" class="messages">
-            <article class="message assistant">
-              <div class="message-meta">assistant</div>
-              <div class="message-body">
-                Paste log snippets, config excerpts, ask what failed, or ask for config help like "generate me a config for a fan".
-              </div>
-            </article>
-          </section>
-
-          <section class="composer-shell">
-            <div class="composer-column">
-              <label class="field">
-                <span>Question</span>
-                <textarea id="message-input" rows="5" placeholder="Why is the printer shutting down during homing?"></textarea>
-              </label>
-
-              <div class="actions">
-                <button id="send-button" type="button">Analyze</button>
-              </div>
-            </div>
-
-            <div class="composer-column">
-              <div class="artifact-grid">
-                <label class="field">
-                  <span>Artifact type</span>
-                  <select id="artifact-kind">
-                    <option value="klippy_log">klippy.log</option>
-                    <option value="moonraker_log">moonraker.log</option>
-                    <option value="system_log">system.log</option>
-                    <option value="config_snippet">config snippet</option>
-                    <option value="notes">notes</option>
-                  </select>
-                </label>
-
-                <label class="field">
-                  <span>Artifact label</span>
-                  <input id="artifact-label" type="text" value="clipboard" />
-                </label>
+          <section class="chat-layout">
+            <aside class="history-panel">
+              <div class="history-panel-header">
+                <div>
+                  <p class="eyebrow">Chats</p>
+                  <h3>History</h3>
+                </div>
+                <button id="new-chat-button" class="secondary-button" type="button">New chat</button>
               </div>
 
-              <label class="field">
-                <span>Pasted artifact</span>
-                <textarea id="artifact-input" rows="8" placeholder="Paste a log excerpt or config block here"></textarea>
-              </label>
+              <div id="history-list" class="history-list"></div>
+            </aside>
+
+            <div class="conversation-panel">
+              <section id="messages" class="messages">
+                <article class="message assistant">
+                  <div class="message-meta">assistant</div>
+                  <div class="message-body">
+                    Ask what failed or ask for config help like "where is my extruder defined?". Current host logs are collected automatically, and you can paste extra config or log text directly into the question field.
+                  </div>
+                </article>
+              </section>
+
+              <section class="composer-shell">
+                <div class="composer-column">
+                  <label class="field">
+                    <span>Question</span>
+                    <textarea id="message-input" rows="10" maxlength="40000" placeholder="Why is the printer shutting down during homing? You can paste relevant config or log text here too."></textarea>
+                  </label>
+
+                  <div class="actions">
+                    <button id="send-button" type="button">Analyze</button>
+                    <div id="composer-status" class="composer-status" aria-live="polite"></div>
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
         </main>

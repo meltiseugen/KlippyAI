@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pydantic import Field
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -60,6 +61,9 @@ class Settings(BaseSettings):
     log_max_files_per_family: int = 3
     log_active_tail_bytes: int = 160_000
     log_rotated_tail_bytes: int = 80_000
+    log_tail_lines_default: int = 100
+    log_tail_lines_overrides: dict[str, int] = Field(default_factory=dict)
+    excluded_logs: list[str] = Field(default_factory=list)
     log_artifact_char_limit: int = 18_000
     collect_systemd_diagnostics: bool = True
     moonraker_service_name: str = "moonraker.service"
@@ -106,12 +110,54 @@ class Settings(BaseSettings):
             raise ValueError("Logging settings must not be blank.")
         return normalized
 
+    @field_validator("log_tail_lines_overrides", mode="before")
+    @classmethod
+    def _normalize_log_tail_lines_overrides(cls, value: Any) -> dict[str, int]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("log_tail_lines_overrides must be a mapping.")
+
+        normalized: dict[str, int] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key).strip().lower()
+            if not key:
+                continue
+            normalized[key] = int(raw_value)
+        return normalized
+
+    @field_validator("excluded_logs", mode="before")
+    @classmethod
+    def _normalize_excluded_logs(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = value.replace("\r", "\n").replace(",", "\n").split("\n")
+        elif isinstance(value, (list, tuple, set)):
+            parts = [str(item) for item in value]
+        else:
+            raise ValueError("excluded_logs must be a string or list.")
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_item in parts:
+            item = str(raw_item).strip().lower()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            normalized.append(item)
+        return normalized
+
     @model_validator(mode="after")
     def _enforce_read_only_runtime(self) -> "Settings":
         # KlippyAI runtime is intentionally shackled for now. Keep the flag for
         # forward compatibility, but do not allow it to enable file writes.
         self.enable_write_actions = False
         self.agent_log_level = self.agent_log_level.upper()
+        self.log_tail_lines_overrides = {
+            key: value for key, value in self.log_tail_lines_overrides.items() if value > 0
+        }
+        self.excluded_logs = [item for item in self.excluded_logs if item]
         return self
 
     def host_logs_dir(self) -> Path:
@@ -143,6 +189,18 @@ def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for section in parser.sections():
         normalized_section = section.strip().lower()
+        if normalized_section == "log_tail_lines":
+            overrides: dict[str, str] = {}
+            for key, value in parser.items(section):
+                normalized_key = key.strip().lower()
+                stripped_value = value.strip()
+                if normalized_key == "default":
+                    values["log_tail_lines_default"] = stripped_value
+                else:
+                    overrides[normalized_key] = stripped_value
+            if overrides:
+                values["log_tail_lines_overrides"] = overrides
+            continue
         for key, value in parser.items(section):
             normalized_key = key.strip().lower()
             normalized_key = section_aliases.get(normalized_section, {}).get(normalized_key, normalized_key)

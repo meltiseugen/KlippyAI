@@ -85,7 +85,7 @@ class PrinterProfileSummary(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     thread_id: str | None = None
-    message: str = Field(min_length=1, max_length=8000)
+    message: str = Field(min_length=1, max_length=40000)
     artifacts: list[ArtifactInput] = Field(default_factory=list)
 
 

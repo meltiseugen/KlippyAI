@@ -76,6 +76,83 @@ async def test_chat_service_routes_config_request_to_config_graph() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_service_routes_config_lookup_request_to_config_graph() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph(
+        "config",
+        {
+            "response_text": "I found 1 active [extruder] section in the current config tree.",
+            "config_proposals": [],
+        },
+    )
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    response = await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="Where do I have the extruder defined?",
+            artifacts=[],
+        )
+    )
+
+    assert "extruder" in response.response
+    assert not diagnosis_graph.calls
+    assert config_graph.calls
+
+
+@pytest.mark.asyncio
+async def test_chat_service_promotes_structured_question_text_into_artifact() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=_FakeGraph("config", {"response_text": "config"}),
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message=(
+                "Why is Klipper shut down?\n\n"
+                "Start printer at Wed May 21 10:00:00 2026\n"
+                "MCU 'mcu' shutdown: Timer too close\n"
+                "Once the underlying issue is corrected, use the\n"
+                '  "FIRMWARE_RESTART" command to reset the firmware.\n'
+            ),
+            artifacts=[],
+        )
+    )
+
+    state = diagnosis_graph.calls[0]["state"]
+    artifacts = state["artifacts"]
+    assert len(artifacts) == 1
+    assert artifacts[0]["kind"] == "system_log"
+    assert artifacts[0]["label"] == "question-context"
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_includes_printer_profile_summary() -> None:
     sessions = InMemorySessionStore(ttl_seconds=60)
     session = sessions.create()

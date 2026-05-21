@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 
 from klippyai_agent.diagnostics import DiagnosticsCollector, DiagnosticsSnapshot, RuleEngine
+from klippyai_agent.hostlogs import HostLogCollector
 from klippyai_agent.llm import (
     ConfigAssistantProvider,
     ConfigPromptPayload,
@@ -15,6 +16,7 @@ from klippyai_agent.llm import (
     DiagnosisProvider,
 )
 from klippyai_agent.printerconfig import (
+    build_config_lookup_response,
     ConfigCollector,
     ConfigRequestTarget,
     ConfigSnapshot,
@@ -31,6 +33,7 @@ class WorkflowContext:
     llm: DiagnosisProvider
     config_collector: ConfigCollector
     config_llm: ConfigAssistantProvider
+    host_logs: HostLogCollector | None
     profile: PrinterProfile
 
 
@@ -61,8 +64,10 @@ class ConfigState(TypedDict, total=False):
     session_id: str
     thread_id: str
     user_message: str
+    artifacts: list[dict[str, Any]]
     feature_target: dict[str, Any]
     config_snapshot: dict[str, Any]
+    runtime_snapshot: dict[str, Any]
     config_output: dict[str, Any]
     response_text: str
     next_actions: list[str]
@@ -96,7 +101,8 @@ async def run_rules(
     snapshot_data = state.get("snapshot", {})
     artifact_items = snapshot_data.get("artifacts", state.get("artifacts", []))
     artifacts = [ArtifactInput.model_validate(item) for item in artifact_items]
-    findings = runtime.context.rules.analyze(artifacts)
+    config_snapshot = ConfigSnapshot.from_state(state.get("config_snapshot", {}))
+    findings = runtime.context.rules.analyze(artifacts, config_snapshot=config_snapshot)
     return {
         "findings": [finding.model_dump() for finding in findings],
         "patch_proposals": [],
@@ -132,7 +138,7 @@ async def call_llm(
 def compose_response(state: DiagnosisState) -> DiagnosisState:
     findings = state.get("findings", [])
     llm_output = state.get("llm_output", {})
-    summary = llm_output.get("summary", "No summary available.")
+    summary = str(llm_output.get("summary", "No summary available.")).strip()
     likely_causes = llm_output.get("likely_causes", [])
     recommended_actions = llm_output.get("recommended_actions", [])
     follow_up_questions = llm_output.get("follow_up_questions", [])
@@ -140,30 +146,29 @@ def compose_response(state: DiagnosisState) -> DiagnosisState:
     lines = [summary]
 
     if findings:
-        lines.append("")
-        lines.append("Evidence-backed findings:")
-        for finding in findings[:5]:
-            lines.append(f"- [{finding['severity']}] {finding['summary']}")
+        primary_finding = findings[0]
+        source = str(primary_finding.get("source", "")).strip()
+        if source and source not in summary:
+            lines.append(f"Location: {source}")
+    elif likely_causes:
+        primary_cause = str(likely_causes[0]).strip()
+        if primary_cause and primary_cause not in summary:
+            lines.append(f"Most likely: {primary_cause}")
 
-    if likely_causes:
+    concise_actions = _dedupe_items(recommended_actions, limit=2)
+    if concise_actions:
         lines.append("")
-        lines.append("Likely causes:")
-        for item in likely_causes[:5]:
+        lines.append("Fix:")
+        for item in concise_actions:
+            lines.append(f"- {item}")
+    elif not findings and follow_up_questions:
+        lines.append("")
+        lines.append("Need:")
+        for item in follow_up_questions[:1]:
             lines.append(f"- {item}")
 
-    if recommended_actions:
-        lines.append("")
-        lines.append("Recommended next actions:")
-        for item in recommended_actions[:5]:
-            lines.append(f"- {item}")
-
-    if follow_up_questions:
-        lines.append("")
-        lines.append("Follow-up questions:")
-        for item in follow_up_questions[:3]:
-            lines.append(f"- {item}")
-
-    next_actions = recommended_actions or [finding["proposed_fix"] for finding in findings[:3]]
+    fallback_actions = [finding["proposed_fix"] for finding in findings[:2]]
+    next_actions = concise_actions or _dedupe_items(fallback_actions, limit=2)
     return {
         "response_text": "\n".join(lines).strip(),
         "next_actions": next_actions,
@@ -176,6 +181,8 @@ def detect_config_target(state: ConfigState) -> ConfigState:
         "feature_target": {
             "feature": target.feature,
             "rationale": target.rationale,
+            "intent": target.intent,
+            "section_name": target.section_name,
         }
     }
 
@@ -185,8 +192,50 @@ async def collect_config_context(
     runtime: Runtime[WorkflowContext],
 ) -> ConfigState:
     snapshot = runtime.context.config_collector.collect()
+    input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
+    runtime_snapshot = DiagnosticsSnapshot(
+        moonraker_reachable=False,
+        moonraker_info=None,
+        artifacts=list(input_artifacts),
+        notes=[],
+    )
+    if runtime.context.host_logs is not None:
+        host_artifacts, host_notes = runtime.context.host_logs.collect()
+        runtime_snapshot = DiagnosticsSnapshot(
+            moonraker_reachable=False,
+            moonraker_info=None,
+            artifacts=[*input_artifacts, *host_artifacts],
+            notes=host_notes,
+        )
     return {
+        "artifacts": [artifact.model_dump() for artifact in input_artifacts],
         "config_snapshot": snapshot.to_state(),
+        "runtime_snapshot": {
+            "moonraker_reachable": runtime_snapshot.moonraker_reachable,
+            "moonraker_info": runtime_snapshot.moonraker_info,
+            "notes": runtime_snapshot.notes,
+            "artifacts": [artifact.model_dump() for artifact in runtime_snapshot.artifacts],
+        },
+    }
+
+
+def resolve_config_lookup(state: ConfigState) -> ConfigState:
+    target_data = state.get("feature_target", {})
+    if target_data.get("intent") != "locate":
+        return {}
+
+    snapshot = ConfigSnapshot.from_state(state.get("config_snapshot", {}))
+    target = ConfigRequestTarget(
+        feature=target_data.get("feature", "generic"),
+        rationale=target_data.get("rationale", "Matched config lookup request."),
+        intent="locate",
+        section_name=target_data.get("section_name"),
+    )
+    response_text, next_actions = build_config_lookup_response(snapshot, target)
+    return {
+        "response_text": response_text,
+        "next_actions": next_actions,
+        "config_proposals": [],
     }
 
 
@@ -200,13 +249,24 @@ async def call_config_llm(
     target = ConfigRequestTarget(
         feature=target_data.get("feature", detected.feature),
         rationale=target_data.get("rationale", detected.rationale),
+        intent=target_data.get("intent", detected.intent),
+        section_name=target_data.get("section_name", detected.section_name),
     )
 
     snapshot = ConfigSnapshot.from_state(snapshot_data)
+    runtime_snapshot_data = state.get("runtime_snapshot", {})
+    runtime_artifacts = [ArtifactInput.model_validate(item) for item in runtime_snapshot_data.get("artifacts", [])]
+    runtime_snapshot = DiagnosticsSnapshot(
+        moonraker_reachable=bool(runtime_snapshot_data.get("moonraker_reachable", False)),
+        moonraker_info=runtime_snapshot_data.get("moonraker_info"),
+        artifacts=runtime_artifacts,
+        notes=list(runtime_snapshot_data.get("notes", [])),
+    )
     payload = ConfigPromptPayload(
         user_message=state["user_message"],
         snapshot=snapshot,
         target=target,
+        runtime_snapshot=runtime_snapshot,
         profile=runtime.context.profile,
     )
     config_output = await runtime.context.config_llm.propose(payload)
@@ -217,37 +277,27 @@ def compose_config_response(state: ConfigState) -> ConfigState:
     output = state.get("config_output", {})
     summary = output.get("summary", "No config proposal was generated.")
     proposals = [ConfigProposal.model_validate(item) for item in output.get("proposals", [])]
-    next_actions = list(output.get("next_actions", []))
+    next_actions = _dedupe_items(output.get("next_actions", []), limit=2)
     follow_up_questions = list(output.get("follow_up_questions", []))
 
     lines = [summary]
 
     if proposals:
         lines.append("")
-        lines.append("Generated config proposals:")
-        for proposal in proposals:
+        lines.append("Proposal:")
+        for proposal in proposals[:2]:
             lines.append(f"- {proposal.title} -> {proposal.target_file}")
-            lines.append("")
-            lines.append(f"```ini\n{proposal.config}\n```")
-            if proposal.assumptions:
-                lines.append("Assumptions:")
-                for item in proposal.assumptions[:4]:
-                    lines.append(f"- {item}")
-            if proposal.warnings:
-                lines.append("Warnings:")
-                for item in proposal.warnings[:4]:
-                    lines.append(f"- {item}")
 
     if next_actions:
         lines.append("")
-        lines.append("Next actions:")
-        for item in next_actions[:5]:
+        lines.append("Next:")
+        for item in next_actions:
             lines.append(f"- {item}")
 
-    if follow_up_questions:
+    if follow_up_questions and not next_actions:
         lines.append("")
-        lines.append("Follow-up questions:")
-        for item in follow_up_questions[:3]:
+        lines.append("Need:")
+        for item in follow_up_questions[:1]:
             lines.append(f"- {item}")
 
     return {
@@ -255,6 +305,30 @@ def compose_config_response(state: ConfigState) -> ConfigState:
         "next_actions": next_actions,
         "config_proposals": [proposal.model_dump() for proposal in proposals],
     }
+
+
+def _dedupe_items(items: list[str] | tuple[str, ...] | object, *, limit: int) -> list[str]:
+    if not isinstance(items, (list, tuple)):
+        return []
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        normalized = str(item).strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(normalized)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def route_config_request(state: ConfigState) -> str:
+    return "lookup_done" if state.get("response_text") else "call_llm"
 
 
 def request_approval(state: ApplyChangeState) -> ApplyChangeState:
@@ -292,11 +366,20 @@ def build_config_graph(checkpointer: Any):
     graph = StateGraph(ConfigState, context_schema=WorkflowContext)
     graph.add_node("detect_config_target", detect_config_target)
     graph.add_node("collect_config_context", collect_config_context)
+    graph.add_node("resolve_config_lookup", resolve_config_lookup)
     graph.add_node("call_config_llm", call_config_llm)
     graph.add_node("compose_config_response", compose_config_response)
     graph.add_edge(START, "detect_config_target")
     graph.add_edge("detect_config_target", "collect_config_context")
-    graph.add_edge("collect_config_context", "call_config_llm")
+    graph.add_edge("collect_config_context", "resolve_config_lookup")
+    graph.add_conditional_edges(
+        "resolve_config_lookup",
+        route_config_request,
+        {
+            "lookup_done": END,
+            "call_llm": "call_config_llm",
+        },
+    )
     graph.add_edge("call_config_llm", "compose_config_response")
     graph.add_edge("compose_config_response", END)
     return graph.compile(checkpointer=checkpointer)

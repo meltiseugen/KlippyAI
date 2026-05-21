@@ -241,8 +241,8 @@ If this host still has an older `[printer_geometry]` section in `klippyai.cfg`, 
 
 KlippyAI currently:
 
-- reads `klippy.log*`
-- reads `moonraker.log*`
+- reads current `.log` files under `printer_data/logs`
+- sends only the configured last lines from each collected log file
 - writes its own runtime log to `printer_data/logs/klippyai.log`
 - reads current config files
 - reads Moonraker state

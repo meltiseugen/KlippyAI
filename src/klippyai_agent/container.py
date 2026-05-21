@@ -34,9 +34,9 @@ def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
         host_logs = HostLogCollector(
             settings.printer_data_root,
             logs_dir_name=settings.logs_dir_name,
-            max_files_per_family=settings.log_max_files_per_family,
-            active_tail_bytes=settings.log_active_tail_bytes,
-            rotated_tail_bytes=settings.log_rotated_tail_bytes,
+            default_tail_lines=settings.log_tail_lines_default,
+            tail_lines_by_log=settings.log_tail_lines_overrides,
+            excluded_logs=settings.excluded_logs,
             artifact_char_limit=settings.log_artifact_char_limit,
         )
     host_system = None
@@ -69,6 +69,7 @@ def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
         llm=diagnosis_provider,
         config_collector=config_collector,
         config_llm=config_provider,
+        host_logs=host_logs,
         profile=profile,
     )
     diagnosis_graph = build_diagnosis_graph(checkpointer)

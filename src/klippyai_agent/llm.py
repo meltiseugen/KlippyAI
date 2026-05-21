@@ -43,6 +43,7 @@ class ConfigPromptPayload:
     snapshot: ConfigSnapshot
     target: ConfigRequestTarget
     profile: PrinterProfile
+    runtime_snapshot: DiagnosticsSnapshot | None = None
 
 
 class DiagnosisProvider(Protocol):
@@ -67,7 +68,7 @@ class StubDiagnosisProvider:
         if payload.findings:
             recommended_actions = [finding.proposed_fix for finding in payload.findings[:3]]
             likely_causes = [finding.summary for finding in payload.findings[:3]]
-            summary = "Deterministic diagnostics found printer issues in the supplied artifacts."
+            summary = payload.findings[0].summary
             if profile_summary:
                 summary += f" Detected printer profile: {profile_summary}."
         else:
@@ -527,7 +528,9 @@ class OpenAIDiagnosisProvider:
                     "You are an expert Klipper and Moonraker diagnostics assistant. "
                     "Use supplied evidence first, do not invent printer state, keep the answer grounded, "
                     "and propose safe next steps before any invasive change. "
-                    "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack."
+                    "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack. "
+                    "Be extremely brief: lead with the most likely root cause in 1-2 short sentences, cite exact file paths and lines when the evidence includes them, "
+                    "limit likely_causes to 1 item, limit recommended_actions to at most 2 short items, avoid background explanation, and only ask follow-up questions when the diagnosis is blocked by missing evidence."
                 ),
             ),
             (
@@ -538,7 +541,7 @@ class OpenAIDiagnosisProvider:
                     "Collected context:\n{context_block}\n\n"
                     "Current config context:\n{config_block}\n\n"
                     "Deterministic findings:\n{findings_block}\n\n"
-                    "Return a concise structured diagnosis."
+                    "Return a concise structured diagnosis with exact file references when available."
                 ),
             ),
         ]
@@ -555,7 +558,10 @@ class OpenAIDiagnosisProvider:
 
     async def analyze(self, payload: DiagnosisPromptPayload) -> DiagnosisLLMOutput:
         findings_block = "\n".join(
-            f"- [{finding.severity}] {finding.summary} | evidence: {finding.evidence} | fix: {finding.proposed_fix}"
+            (
+                f"- [{finding.severity}] {finding.summary} | source: {finding.source} "
+                f"| evidence: {finding.evidence} | fix: {finding.proposed_fix}"
+            )
             for finding in payload.findings
         )
         if not findings_block:
@@ -567,7 +573,7 @@ class OpenAIDiagnosisProvider:
                 "user_message": payload.user_message,
                 "profile_block": payload.profile.to_prompt_block(),
                 "context_block": payload.snapshot.to_prompt_block(),
-                "config_block": payload.config_snapshot.to_prompt_block(max_documents=6),
+                "config_block": payload.config_snapshot.to_prompt_block(),
                 "findings_block": findings_block,
             }
         )
@@ -585,7 +591,8 @@ class OpenAIConfigAssistantProvider:
                     "Generate safe, reviewable config snippets only. Prefer managed include snippets under klippyai/*.cfg. "
                     "Do not imply that you can write files or apply changes directly. "
                     "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
-                    "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons."
+                    "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons. "
+                    "Keep summary and next actions brief because the UI renders proposal details separately."
                 ),
             ),
             (
@@ -595,6 +602,7 @@ class OpenAIConfigAssistantProvider:
                     "Detected printer profile:\n{profile_block}\n\n"
                     "Detected target:\n{target_feature}\n"
                     "Detection rationale:\n{target_rationale}\n\n"
+                    "Collected runtime context:\n{runtime_block}\n\n"
                     "Current config context:\n{config_block}\n\n"
                     "Return a concise structured config proposal."
                 ),
@@ -619,6 +627,7 @@ class OpenAIConfigAssistantProvider:
                 "profile_block": payload.profile.to_prompt_block(),
                 "target_feature": payload.target.feature,
                 "target_rationale": payload.target.rationale,
+                "runtime_block": payload.runtime_snapshot.to_prompt_block() if payload.runtime_snapshot else "No runtime context collected.",
                 "config_block": payload.snapshot.to_prompt_block(),
             }
         )

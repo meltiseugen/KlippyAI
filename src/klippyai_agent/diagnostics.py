@@ -8,6 +8,7 @@ from typing import Any
 from klippyai_agent.hostlogs import HostLogCollector
 from klippyai_agent.hostsystem import HostSystemCollector
 from klippyai_agent.moonraker import MoonrakerClient, MoonrakerError
+from klippyai_agent.printerconfig import ConfigSnapshot
 from klippyai_agent.schemas import ArtifactInput, IssueFinding, Severity
 
 
@@ -130,7 +131,12 @@ class RuleEngine:
         ),
     )
 
-    def analyze(self, artifacts: list[ArtifactInput]) -> list[IssueFinding]:
+    def analyze(
+        self,
+        artifacts: list[ArtifactInput],
+        *,
+        config_snapshot: ConfigSnapshot | None = None,
+    ) -> list[IssueFinding]:
         findings: list[IssueFinding] = []
         seen_codes: set[tuple[str, str]] = set()
 
@@ -157,6 +163,9 @@ class RuleEngine:
                     )
                 )
 
+        if config_snapshot is not None:
+            findings.extend(self._analyze_config_snapshot(config_snapshot))
+
         findings.sort(key=lambda finding: self._severity_rank(finding.severity), reverse=True)
         return findings
 
@@ -164,3 +173,28 @@ class RuleEngine:
     def _severity_rank(severity: str) -> int:
         ranks = {"critical": 4, "high": 3, "medium": 2, "low": 1}
         return ranks.get(severity, 0)
+
+    def _analyze_config_snapshot(self, config_snapshot: ConfigSnapshot) -> list[IssueFinding]:
+        findings: list[IssueFinding] = []
+
+        for placeholder in config_snapshot.placeholders[:8]:
+            section_detail = f" in section [{placeholder.section}]" if placeholder.section else ""
+            option_detail = f" for option '{placeholder.option}'" if placeholder.option else ""
+            findings.append(
+                IssueFinding(
+                    code="config_placeholder_value",
+                    severity="high",
+                    source=f"{placeholder.path}:{placeholder.line_number}",
+                    summary=(
+                        f"Placeholder value {placeholder.value} is still active{section_detail}{option_detail}, "
+                        "which can prevent Klipper from loading the config."
+                    ),
+                    evidence=placeholder.line_text,
+                    proposed_fix=(
+                        f"Replace {placeholder.value} with the real hardware value in "
+                        f"{placeholder.path}:{placeholder.line_number} and restart Klipper."
+                    ),
+                )
+            )
+
+        return findings

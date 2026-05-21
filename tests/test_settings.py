@@ -35,7 +35,12 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "agent_log_file_name = klippyai.log\n"
         "agent_log_level = debug\n"
         "agent_log_max_bytes = 4096\n"
-        "agent_log_backup_count = 2\n\n"
+        "agent_log_backup_count = 2\n"
+        "excluded_logs = klippyai.log, crowsnest, *_debug.log\n"
+        "log_tail_lines_default = 100\n\n"
+        "[log_tail_lines]\n"
+        "klippy = 120\n"
+        "moonraker = 220\n\n"
         "[llm]\n"
         "llm_provider = stub\n"
         "openai_model = gpt-5.4-mini\n",
@@ -61,6 +66,9 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.bed_mesh_configured is True
     assert settings.config_root_file == "machines/voron/printer-main.cfg"
     assert settings.config_ignore_globs == "backups/**, archive/**"
+    assert settings.log_tail_lines_default == 100
+    assert settings.log_tail_lines_overrides == {"klippy": 120, "moonraker": 220}
+    assert settings.excluded_logs == ["klippyai.log", "crowsnest", "*_debug.log"]
 
     get_settings.cache_clear()
 

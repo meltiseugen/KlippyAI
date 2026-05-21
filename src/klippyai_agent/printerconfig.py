@@ -22,6 +22,36 @@ ConfigFeature = Literal[
     "extruder",
     "generic",
 ]
+ConfigRequestIntent = Literal["generate", "locate"]
+
+_FEATURE_KEYWORDS: tuple[tuple[ConfigFeature, tuple[str, ...]], ...] = (
+    ("bed_mesh", ("bed mesh", "bed_mesh", "mesh leveling", "adaptive mesh")),
+    ("filament", ("filament sensor", "filament switch", "runout", "motion sensor")),
+    ("input_shaper", ("input shaper", "resonance", "adxl", "accelerometer")),
+    ("canbus", ("canbus", "can bus", "can toolhead", "ebb", "utoc")),
+    ("probe", ("bltouch", "probe", "klicky", "inductive", "cartographer", "beacon", "eddy")),
+    ("sensor", ("sensor", "thermistor", "filament switch", "filament sensor")),
+    ("macro", ("macro", "gcode_macro", "start print", "end print")),
+    ("heater", ("heater", "heater_fan", "temperature_fan", "hotend fan", "bed heater")),
+    ("extruder", ("extruder", "rotation_distance", "pressure advance", "pressure_advance")),
+    ("stepper", ("stepper", "tmc", "motor current", "driver current", "x axis", "y axis", "z axis")),
+    ("fan", ("fan", "blower", "part cooling", "controller fan")),
+)
+_FEATURE_SECTION_PREFIXES: dict[ConfigFeature, tuple[str, ...]] = {
+    "fan": ("fan", "fan_generic", "heater_fan", "controller_fan", "temperature_fan"),
+    "macro": ("gcode_macro", "delayed_gcode"),
+    "sensor": ("temperature_sensor", "thermistor", "adc_temperature"),
+    "probe": ("probe", "bltouch", "beacon", "cartographer", "probe_eddy_current"),
+    "heater": ("extruder", "heater_bed", "heater_fan", "temperature_fan"),
+    "input_shaper": ("input_shaper", "resonance_tester", "adxl345", "lis2dw"),
+    "bed_mesh": ("bed_mesh",),
+    "filament": ("filament_switch_sensor", "filament_motion_sensor"),
+    "canbus": ("mcu",),
+    "stepper": ("stepper_", "tmc"),
+    "extruder": ("extruder", "extruder_stepper"),
+    "generic": (),
+}
+_DIRECT_SECTION_PATTERN = re.compile(r"\[([^\]]+)\]")
 
 
 @dataclass(slots=True)
@@ -35,10 +65,40 @@ class ConfigDocument:
         return f"File: {self.path}\nSections: {section_text}\n\n{self.content}"
 
 
+@dataclass(frozen=True, slots=True)
+class ConfigPlaceholder:
+    path: str
+    line_number: int
+    line_text: str
+    value: str
+    section: str | None = None
+    option: str | None = None
+
+    def summary(self) -> str:
+        details: list[str] = [f"{self.value} at {self.path}:{self.line_number}"]
+        if self.section:
+            details.append(f"section [{self.section}]")
+        if self.option:
+            details.append(f"option {self.option}")
+        return " | ".join(details)
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigSectionLocation:
+    path: str
+    line_number: int
+    section: str
+
+    def summary(self) -> str:
+        return f"[{self.section}] at {self.path}:{self.line_number}"
+
+
 @dataclass(slots=True)
 class ConfigSnapshot:
     root_file: str | None
     documents: list[ConfigDocument]
+    section_locations: list[ConfigSectionLocation] = field(default_factory=list)
+    placeholders: list[ConfigPlaceholder] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -59,14 +119,40 @@ class ConfigSnapshot:
         )
         return any(include_pattern.search(document.content) for document in self.documents)
 
-    def to_prompt_block(self, max_documents: int = 8) -> str:
+    def find_section_locations(
+        self,
+        target: "ConfigRequestTarget",
+        *,
+        limit: int = 12,
+    ) -> list[ConfigSectionLocation]:
+        if target.section_name:
+            matches = [
+                location
+                for location in self.section_locations
+                if location.section.lower() == target.section_name.lower()
+            ]
+            return matches[:limit]
+
+        prefixes = _FEATURE_SECTION_PREFIXES.get(target.feature, ())
+        matches = [
+            location
+            for location in self.section_locations
+            if any(_section_matches_prefix(location.section, prefix) for prefix in prefixes)
+        ]
+        return matches[:limit]
+
+    def to_prompt_block(self, max_documents: int | None = None) -> str:
         sections: list[str] = []
         if self.root_file:
             sections.append(f"Root config: {self.root_file}")
         if self.notes:
             sections.append("Collector notes:\n" + "\n".join(self.notes))
+        if self.placeholders:
+            placeholder_lines = [f"- {placeholder.summary()}" for placeholder in self.placeholders[:6]]
+            sections.append("Detected placeholder values:\n" + "\n".join(placeholder_lines))
         if self.documents:
-            document_blocks = [document.prompt_block() for document in self.documents[:max_documents]]
+            documents = self.documents if max_documents is None else self.documents[:max_documents]
+            document_blocks = [document.prompt_block() for document in documents]
             sections.append("Config files:\n" + "\n\n".join(document_blocks))
         else:
             sections.append("No config files were collected.")
@@ -76,6 +162,25 @@ class ConfigSnapshot:
         return {
             "root_file": self.root_file,
             "notes": list(self.notes),
+            "section_locations": [
+                {
+                    "path": location.path,
+                    "line_number": location.line_number,
+                    "section": location.section,
+                }
+                for location in self.section_locations
+            ],
+            "placeholders": [
+                {
+                    "path": placeholder.path,
+                    "line_number": placeholder.line_number,
+                    "line_text": placeholder.line_text,
+                    "value": placeholder.value,
+                    "section": placeholder.section,
+                    "option": placeholder.option,
+                }
+                for placeholder in self.placeholders
+            ],
             "documents": [
                 {
                     "path": document.path,
@@ -96,10 +201,31 @@ class ConfigSnapshot:
             )
             for item in data.get("documents", [])
         ]
+        section_locations = [
+            ConfigSectionLocation(
+                path=str(item.get("path", "")),
+                line_number=int(item.get("line_number", 0)),
+                section=str(item.get("section", "")),
+            )
+            for item in data.get("section_locations", [])
+        ]
+        placeholders = [
+            ConfigPlaceholder(
+                path=str(item.get("path", "")),
+                line_number=int(item.get("line_number", 0)),
+                line_text=str(item.get("line_text", "")),
+                value=str(item.get("value", "")),
+                section=str(item["section"]) if item.get("section") else None,
+                option=str(item["option"]) if item.get("option") else None,
+            )
+            for item in data.get("placeholders", [])
+        ]
         root_file = data.get("root_file")
         return cls(
             root_file=str(root_file) if root_file else None,
             documents=documents,
+            section_locations=section_locations,
+            placeholders=placeholders,
             notes=[str(note) for note in data.get("notes", [])],
         )
 
@@ -108,11 +234,15 @@ class ConfigSnapshot:
 class ConfigRequestTarget:
     feature: ConfigFeature
     rationale: str
+    intent: ConfigRequestIntent = "generate"
+    section_name: str | None = None
 
 
 class ConfigCollector:
     _INCLUDE_PATTERN = re.compile(r"^\s*\[include\s+([^\]]+)\]\s*$", re.IGNORECASE | re.MULTILINE)
     _SECTION_PATTERN = re.compile(r"^\s*\[([^\]]+)\]\s*$", re.MULTILINE)
+    _OPTION_PATTERN = re.compile(r"^\s*([A-Za-z0-9_]+)\s*:\s*(.+?)\s*$")
+    _PLACEHOLDER_VALUE_PATTERN = re.compile(r"^(YOUR_[A-Z0-9_]+|<[A-Z0-9_]+>)$")
 
     def __init__(
         self,
@@ -121,8 +251,8 @@ class ConfigCollector:
         config_dir_name: str = "config",
         root_config_name: str | None = None,
         ignore_globs: str | list[str] | tuple[str, ...] | None = None,
-        max_documents: int = 12,
-        max_chars_per_document: int = 12_000,
+        max_documents: int | None = None,
+        max_chars_per_document: int | None = None,
     ) -> None:
         self._config_dir = printer_data_root / config_dir_name
         self._root_config_name = self._normalize_root_config_name(root_config_name)
@@ -146,13 +276,17 @@ class ConfigCollector:
 
         visited: set[Path] = set()
         documents: list[ConfigDocument] = []
-        self._collect_file(root_file, visited, documents, notes)
-        if len(documents) >= self._max_documents:
+        section_locations: list[ConfigSectionLocation] = []
+        placeholders: list[ConfigPlaceholder] = []
+        self._collect_file(root_file, visited, documents, section_locations, placeholders, notes)
+        if self._max_documents is not None and len(documents) >= self._max_documents:
             notes.append(f"Config collection stopped after {self._max_documents} files to keep context bounded.")
 
         return ConfigSnapshot(
             root_file=str(root_file),
             documents=documents,
+            section_locations=section_locations,
+            placeholders=placeholders,
             notes=notes,
         )
 
@@ -234,9 +368,11 @@ class ConfigCollector:
         path: Path,
         visited: set[Path],
         documents: list[ConfigDocument],
+        section_locations: list[ConfigSectionLocation],
+        placeholders: list[ConfigPlaceholder],
         notes: list[str],
     ) -> None:
-        if len(documents) >= self._max_documents:
+        if self._max_documents is not None and len(documents) >= self._max_documents:
             return
 
         try:
@@ -255,6 +391,8 @@ class ConfigCollector:
             return
 
         sections = self._extract_sections(raw_content)
+        section_locations.extend(self._extract_section_locations(path, raw_content))
+        placeholders.extend(self._detect_placeholders(path, raw_content))
         clipped_content = self._clip_text(raw_content.strip(), self._max_chars_per_document)
         documents.append(
             ConfigDocument(
@@ -273,8 +411,8 @@ class ConfigCollector:
                 if self._should_ignore(match):
                     notes.append(f"Ignored config file due to config_context.ignore_globs: {match}")
                     continue
-                self._collect_file(match, visited, documents, notes)
-                if len(documents) >= self._max_documents:
+                self._collect_file(match, visited, documents, section_locations, placeholders, notes)
+                if self._max_documents is not None and len(documents) >= self._max_documents:
                     return
 
     @classmethod
@@ -324,37 +462,97 @@ class ConfigCollector:
                 return path.as_posix()
 
     @staticmethod
-    def _clip_text(text: str, limit: int) -> str:
-        if len(text) <= limit:
+    def _clip_text(text: str, limit: int | None) -> str:
+        if limit is None or len(text) <= limit:
             return text
 
         head = max((limit - 32) // 2, 0)
         tail = max(limit - head - 17, 0)
         return f"{text[:head]}\n...[truncated]...\n{text[-tail:]}"
 
+    @classmethod
+    def _extract_section_locations(cls, path: Path, content: str) -> list[ConfigSectionLocation]:
+        locations: list[ConfigSectionLocation] = []
+
+        for line_number, raw_line in enumerate(content.splitlines(), start=1):
+            section_match = cls._SECTION_PATTERN.match(raw_line)
+            if not section_match:
+                continue
+
+            section = section_match.group(1).strip()
+            if section.lower().startswith("include "):
+                continue
+
+            locations.append(
+                ConfigSectionLocation(
+                    path=str(path),
+                    line_number=line_number,
+                    section=section,
+                )
+            )
+
+        return locations
+
+    @classmethod
+    def _detect_placeholders(cls, path: Path, content: str) -> list[ConfigPlaceholder]:
+        placeholders: list[ConfigPlaceholder] = []
+        current_section: str | None = None
+
+        for line_number, raw_line in enumerate(content.splitlines(), start=1):
+            section_match = cls._SECTION_PATTERN.match(raw_line)
+            if section_match:
+                section = section_match.group(1).strip()
+                if not section.lower().startswith("include "):
+                    current_section = section
+                continue
+
+            normalized_line = raw_line.split("#", 1)[0].strip()
+            if not normalized_line:
+                continue
+
+            option_match = cls._OPTION_PATTERN.match(normalized_line)
+            if not option_match:
+                continue
+
+            option = option_match.group(1).strip()
+            value = option_match.group(2).strip()
+            unquoted_value = value.strip("\"'")
+            if not cls._PLACEHOLDER_VALUE_PATTERN.fullmatch(unquoted_value):
+                continue
+
+            placeholders.append(
+                ConfigPlaceholder(
+                    path=str(path),
+                    line_number=line_number,
+                    line_text=normalized_line,
+                    value=unquoted_value,
+                    section=current_section,
+                    option=option,
+                )
+            )
+
+        return placeholders
+
 
 def infer_config_request_target(message: str) -> ConfigRequestTarget:
     lowered = message.lower()
 
-    keyword_map: list[tuple[ConfigFeature, tuple[str, ...]]] = [
-        ("bed_mesh", ("bed mesh", "bed_mesh", "mesh leveling", "adaptive mesh")),
-        ("filament", ("filament sensor", "filament switch", "runout", "motion sensor")),
-        ("input_shaper", ("input shaper", "resonance", "adxl", "accelerometer")),
-        ("canbus", ("canbus", "can bus", "can toolhead", "ebb", "utoc")),
-        ("probe", ("bltouch", "probe", "klicky", "inductive", "cartographer")),
-        ("sensor", ("sensor", "thermistor", "filament switch", "filament sensor")),
-        ("macro", ("macro", "gcode_macro", "start print", "end print")),
-        ("heater", ("heater", "heater_fan", "temperature_fan", "hotend fan", "bed heater")),
-        ("extruder", ("extruder", "rotation_distance", "pressure advance", "pressure_advance")),
-        ("stepper", ("stepper", "tmc", "motor current", "driver current", "x axis", "y axis", "z axis")),
-        ("fan", ("fan", "blower", "part cooling", "controller fan")),
-    ]
+    explicit_section = _extract_explicit_section_name(message)
+    if explicit_section:
+        feature = _infer_feature_from_section_name(explicit_section)
+        return ConfigRequestTarget(
+            feature=feature,
+            rationale=f"Matched explicit section lookup for [{explicit_section}].",
+            intent="locate",
+            section_name=explicit_section,
+        )
 
-    for feature, keywords in keyword_map:
+    for feature, keywords in _FEATURE_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
             return ConfigRequestTarget(
                 feature=feature,
                 rationale=f"Matched request keywords for {feature}.",
+                intent="locate" if _looks_like_lookup_request(lowered) else "generate",
             )
 
     return ConfigRequestTarget(
@@ -365,7 +563,7 @@ def infer_config_request_target(message: str) -> ConfigRequestTarget:
 
 def looks_like_config_request(message: str) -> bool:
     lowered = message.lower()
-    intent_words = (
+    generate_intent_words = (
         "add",
         "generate",
         "create",
@@ -384,25 +582,109 @@ def looks_like_config_request(message: str) -> bool:
         "optimize",
         "rewrite",
     )
-    feature_words = (
-        "fan",
-        "macro",
-        "sensor",
-        "probe",
-        "heater",
-        "input shaper",
-        "bed mesh",
-        "filament",
-        "canbus",
-        "can bus",
-        "extruder",
-        "stepper",
-        "tmc",
-        "pressure advance",
-        "printer.cfg",
-        "klipper config",
+    lookup_intent_words = (
+        "where",
+        "which file",
+        "what file",
+        "find",
+        "locate",
+        "show me where",
+        "defined",
+        "configured",
+        "declared",
     )
+    if _extract_explicit_section_name(message):
+        return True
 
-    has_intent = any(word in lowered for word in intent_words)
-    has_feature = any(word in lowered for word in feature_words)
-    return has_intent and has_feature
+    has_generate_intent = any(word in lowered for word in generate_intent_words)
+    has_lookup_intent = any(word in lowered for word in lookup_intent_words)
+    has_feature = any(keyword in lowered for _, keywords in _FEATURE_KEYWORDS for keyword in keywords)
+    return has_feature and (has_generate_intent or has_lookup_intent)
+
+
+def build_config_lookup_response(
+    snapshot: ConfigSnapshot,
+    target: ConfigRequestTarget,
+) -> tuple[str, list[str]]:
+    matches = snapshot.find_section_locations(target)
+    label = _describe_lookup_target(target)
+
+    if matches:
+        noun = "section" if len(matches) == 1 else "sections"
+        lines = [f"I found {len(matches)} active {label} {noun} in the current config tree.", "", "Matches:"]
+        lines.extend(f"- {match.summary()}" for match in matches)
+        next_actions: list[str] = []
+        if len(matches) > 1:
+            next_actions.append("Ask for an exact section name if you want one match narrowed further.")
+        return "\n".join(lines), next_actions
+
+    lines = [f"I couldn't find any active {label} sections in the current config tree."]
+    next_actions = [
+        "Ask for the exact section name if you know it, for example [extruder] or [fan_generic part_cooling].",
+        "Check whether the section lives in an include path outside the collected config tree.",
+    ]
+    return "\n".join(lines), next_actions
+
+
+def _looks_like_lookup_request(lowered_message: str) -> bool:
+    lookup_intent_words = (
+        "where",
+        "which file",
+        "what file",
+        "find",
+        "locate",
+        "show me where",
+        "defined",
+        "configured",
+        "declared",
+    )
+    return any(word in lowered_message for word in lookup_intent_words)
+
+
+def _extract_explicit_section_name(message: str) -> str | None:
+    match = _DIRECT_SECTION_PATTERN.search(message)
+    if not match:
+        return None
+    section = match.group(1).strip()
+    return section or None
+
+
+def _infer_feature_from_section_name(section_name: str) -> ConfigFeature:
+    lowered = section_name.lower()
+    for feature, prefixes in _FEATURE_SECTION_PREFIXES.items():
+        if any(_section_matches_prefix(lowered, prefix) for prefix in prefixes):
+            return feature
+    return "generic"
+
+
+def _section_matches_prefix(section_name: str, prefix: str) -> bool:
+    lowered_section = section_name.lower()
+    lowered_prefix = prefix.lower()
+    if lowered_prefix.endswith("_"):
+        return lowered_section.startswith(lowered_prefix)
+    if lowered_section == lowered_prefix:
+        return True
+    if not lowered_section.startswith(lowered_prefix):
+        return False
+    next_char = lowered_section[len(lowered_prefix) : len(lowered_prefix) + 1]
+    return next_char in {"", " ", "_"} or next_char.isdigit()
+
+
+def _describe_lookup_target(target: ConfigRequestTarget) -> str:
+    if target.section_name:
+        return f"[{target.section_name}]"
+    labels = {
+        "fan": "fan-related",
+        "macro": "macro-related",
+        "sensor": "sensor-related",
+        "probe": "probe-related",
+        "heater": "heater-related",
+        "input_shaper": "input-shaper-related",
+        "bed_mesh": "bed-mesh-related",
+        "filament": "filament-sensor-related",
+        "canbus": "CAN-related",
+        "stepper": "stepper-related",
+        "extruder": "extruder-related",
+        "generic": "matching",
+    }
+    return labels.get(target.feature, "matching")

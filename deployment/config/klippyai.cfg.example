@@ -68,10 +68,21 @@ agent_log_file_name = klippyai.log
 agent_log_level = INFO
 agent_log_max_bytes = 2097152
 agent_log_backup_count = 5
-log_max_files_per_family = 3
-log_active_tail_bytes = 160000
-log_rotated_tail_bytes = 80000
+log_tail_lines_default = 100
 log_artifact_char_limit = 18000
+# Optional denylist for current host log files. Supports exact names, bare stems,
+# and glob patterns, for example: klippyai.log, crowsnest, *_debug.log
+excluded_logs =
+
+[log_tail_lines]
+# Override the automatic tail length for specific current log files by stem.
+# Examples:
+# - klippy.log -> klippy
+# - moonraker.log -> moonraker
+# - klippyai.log -> klippyai
+klippy = 100
+moonraker = 200
+klippyai = 100
 
 [system]
 collect_systemd_diagnostics = true
