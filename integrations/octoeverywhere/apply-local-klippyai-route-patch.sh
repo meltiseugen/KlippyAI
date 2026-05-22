@@ -14,6 +14,7 @@ Options:
   --oe-root PATH          OctoEverywhere checkout root. Default: $HOME/octoeverywhere
   --klippyai-prefix PATH  Public KlippyAI prefix. Default: /klippyai
   --klippyai-port PORT    Local KlippyAI backend port. Default: 8811
+  --nav-target VALUE      Sidebar click behavior: _blank or _self. Default: _blank
   --restart-service       Restart the OctoEverywhere systemd service after patching
   --service NAME          Service name to restart with --restart-service. Default: octoeverywhere
   -h, --help              Show this help
@@ -23,6 +24,7 @@ EOF
 OE_ROOT="${HOME}/octoeverywhere"
 KLIPPYAI_PREFIX="/klippyai"
 KLIPPYAI_PORT="8811"
+NAV_TARGET="_blank"
 RESTART_SERVICE=0
 OE_SERVICE="octoeverywhere"
 
@@ -38,6 +40,10 @@ while [ $# -gt 0 ]; do
       ;;
     --klippyai-port)
       KLIPPYAI_PORT="$2"
+      shift 2
+      ;;
+    --nav-target)
+      NAV_TARGET="$2"
       shift 2
       ;;
     --restart-service)
@@ -82,6 +88,15 @@ case "$KLIPPYAI_PORT" in
     ;;
 esac
 
+case "$NAV_TARGET" in
+  _blank|_self)
+    ;;
+  *)
+    printf 'Invalid --nav-target value: %s\n' "$NAV_TARGET" >&2
+    exit 1
+    ;;
+esac
+
 ROUTER_FILE="$OE_ROOT/moonraker_octoeverywhere/moonrakerapirouter.py"
 UI_FILE="$OE_ROOT/moonraker_octoeverywhere/static/oe-ui.js"
 
@@ -103,6 +118,7 @@ OE_ROUTER_FILE="$ROUTER_FILE" \
 OE_UI_FILE="$UI_FILE" \
 KLIPPYAI_PREFIX="$KLIPPYAI_PREFIX" \
 KLIPPYAI_PORT="$KLIPPYAI_PORT" \
+NAV_TARGET="$NAV_TARGET" \
 python3 - <<'PY'
 from __future__ import annotations
 
@@ -126,6 +142,7 @@ router_file = Path(os.environ["OE_ROUTER_FILE"])
 ui_file = Path(os.environ["OE_UI_FILE"])
 klippyai_prefix = os.environ["KLIPPYAI_PREFIX"]
 klippyai_port = os.environ["KLIPPYAI_PORT"]
+nav_target = os.environ["NAV_TARGET"]
 klippyai_prefix_with_slash = klippyai_prefix if klippyai_prefix.endswith("/") else klippyai_prefix + "/"
 
 router_text = router_file.read_text(encoding="utf-8")
@@ -182,6 +199,20 @@ router_text = replace_or_insert(
 router_file.write_text(router_text, encoding="utf-8")
 
 ui_text = ui_file.read_text(encoding="utf-8")
+if nav_target == "_blank":
+    navigation_action = """            oe_log("Opening KlippyAI in a new tab.");
+            var popup = window.open(klippyAiHref, "_blank", "noopener,noreferrer");
+            if(popup == null)
+            {
+                oe_log("Browser blocked the KlippyAI popup, falling back to same-tab navigation.");
+                window.location.assign(klippyAiHref);
+            }
+"""
+else:
+    navigation_action = """            oe_log("Forcing full navigation for KlippyAI link.");
+            window.location.assign(klippyAiHref);
+"""
+
 ui_block = f"""    // KlippyAI local route patch start
     function oe_force_klippyai_full_navigation()
     {{
@@ -208,10 +239,9 @@ ui_block = f"""    // KlippyAI local route patch start
                 return;
             }}
 
-            oe_log("Forcing full navigation for KlippyAI link.");
             event.preventDefault();
             event.stopPropagation();
-            window.location.assign(klippyAiHref);
+{navigation_action.rstrip()}
         }}, true);
     }}
     oe_force_klippyai_full_navigation();
@@ -231,6 +261,7 @@ printf 'Patched OctoEverywhere checkout at %s\n' "$OE_ROOT"
 printf '  Router file: %s\n' "$ROUTER_FILE"
 printf '  UI helper:   %s\n' "$UI_FILE"
 printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPPYAI_PORT"
+printf '  Nav target:  %s\n' "$NAV_TARGET"
 
 if [ "$RESTART_SERVICE" -eq 1 ]; then
   sudo systemctl restart "$OE_SERVICE"

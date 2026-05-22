@@ -13,8 +13,8 @@ What the patch does:
   `/klippyai` and `/klippyai/...` are forwarded directly to the local KlippyAI
   backend on `127.0.0.1:8811`
 - patches OctoEverywhere's injected frontend helper so the `KlippyAI` nav item
-  forces a full browser navigation instead of leaving the click up to the
-  Mainsail SPA/router
+  bypasses the Mainsail SPA/router and can open KlippyAI in either the current
+  tab or a new tab
 
 What it does not do:
 
@@ -45,6 +45,7 @@ Optional flags:
 
 - `--klippyai-prefix /klippyai`
 - `--klippyai-port 8811`
+- `--nav-target _blank`
 - `--service octoeverywhere`
 
 The script writes timestamped backups next to the patched OctoEverywhere files.

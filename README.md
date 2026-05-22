@@ -254,8 +254,9 @@ an unsupported host-side patch bundle in
 
 This patch modifies the local OctoEverywhere checkout, not Mainsail itself. It
 adds a `/klippyai/... -> 127.0.0.1:8811/...` route inside OctoEverywhere's
-Moonraker-side router and forces a full browser navigation for the `KlippyAI`
-sidebar entry when loaded via `*.octoeverywhere.com`.
+Moonraker-side router and overrides the `KlippyAI` sidebar click behavior when
+loaded via `*.octoeverywhere.com`, with support for opening KlippyAI in a new
+tab.
 
 Use it only if you are comfortable carrying a local OctoEverywhere patch across
 future OE updates.
