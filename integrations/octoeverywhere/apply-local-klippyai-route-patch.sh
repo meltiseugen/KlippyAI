@@ -240,6 +240,7 @@ ui_block = f"""    // KlippyAI local route patch start
 
         var klippyAiHref = "{klippyai_prefix_with_slash}";
         var klippyAiHrefNoSlash = klippyAiHref.endsWith("/") ? klippyAiHref.substring(0, klippyAiHref.length - 1) : klippyAiHref;
+        var klippyAiDirectHref = klippyAiHref + "direct";
 
         function oe_reset_klippyai_nav_state(link)
         {{
@@ -287,6 +288,55 @@ ui_block = f"""    // KlippyAI local route patch start
             window.setTimeout(clearAll, 100);
         }}
 
+        function oe_klippyai_route_needs_rescue()
+        {{
+            if(document.body instanceof HTMLElement && document.body.dataset && document.body.dataset.apiBase)
+            {{
+                return false;
+            }}
+
+            var currentPath = window.location.pathname || "";
+            return currentPath === klippyAiHrefNoSlash || currentPath === klippyAiHref;
+        }}
+
+        async function oe_rescue_klippyai_route_if_needed()
+        {{
+            if(!oe_klippyai_route_needs_rescue())
+            {{
+                return;
+            }}
+
+            oe_log("Rescuing /klippyai route from Mainsail shell.");
+
+            try
+            {{
+                var directUrl = new URL(klippyAiDirectHref, window.location.origin);
+                directUrl.searchParams.set("_klippyai_direct", String(Date.now()));
+                var response = await fetch(directUrl.toString(), {{
+                    cache: "no-store",
+                    credentials: "same-origin",
+                    headers: {{
+                        "Accept": "text/html",
+                        "X-KlippyAI-Route-Rescue": "1"
+                    }}
+                }});
+
+                if(!response.ok)
+                {{
+                    throw new Error("KlippyAI direct route returned status " + response.status);
+                }}
+
+                var html = await response.text();
+                document.open();
+                document.write(html);
+                document.close();
+            }}
+            catch(error)
+            {{
+                oe_log("KlippyAI route rescue failed: " + error);
+            }}
+        }}
+
         document.addEventListener("click", function(event)
         {{
             var target = event.target;
@@ -322,6 +372,8 @@ ui_block = f"""    // KlippyAI local route patch start
             oe_reset_klippyai_nav_state(link);
 {navigation_action.rstrip()}
         }}, true);
+
+        oe_rescue_klippyai_route_if_needed();
     }}
     oe_force_klippyai_full_navigation();
     // KlippyAI local route patch end

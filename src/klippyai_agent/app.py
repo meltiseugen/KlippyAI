@@ -161,6 +161,24 @@ def create_app() -> FastAPI:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.get("/direct", response_class=HTMLResponse)
+    async def direct(request: Request) -> HTMLResponse:
+        response = templates.TemplateResponse(
+            request=request,
+            name="embed.html",
+            context={
+                "session_id": "",
+                "api_base": api_base,
+                "embed_css": embed_css,
+                "embed_js": embed_js,
+                "shell_nav_items": shell_nav_items,
+                "shell_home_href": "/",
+                "shell_klippyai_href": f"{root_base}/" if root_base else "/",
+            },
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, object]:
         container = _get_container(request)
