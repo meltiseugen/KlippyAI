@@ -111,6 +111,8 @@ The installer will:
 - generate `/etc/klippyai/nginx-location.conf`
 - optionally patch the selected Mainsail nginx server block to include that snippet
 - optionally add a Mainsail nav link in `.theme/navi.json`
+- if `gcode_shell_command` is available, optionally create an `UPDATE_KLIPPYAI` macro plus helper script and sudoers entry
+- if OctoEverywhere is installed, optionally apply the local OE `/klippyai/` route patch automatically
 - write the KlippyAI runtime log to `printer_data/logs/klippyai.log`
 
 ## 5. Edit nginx
@@ -176,12 +178,20 @@ Optional OctoEverywhere path:
   Connection URL, see
   [integrations/octoeverywhere/README.md](integrations/octoeverywhere/README.md)
   and apply the local OE host patch from this repo
+- if the installer detects an OctoEverywhere checkout, it can offer to apply
+  that patch for you during install
 
 ## 8. Important Files
 
 Editable runtime config:
 
 - `/home/<service-user>/printer_data/config/klippyai.cfg`
+
+Optional Klipper update macro files:
+
+- `/home/<service-user>/printer_data/config/klippyai-update-macro.cfg`
+- `/usr/local/bin/klippyai-self-update`
+- `/etc/sudoers.d/klippyai-self-update`
 
 Server-side API key file:
 

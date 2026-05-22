@@ -30,6 +30,9 @@ What it does not do:
 
 If your host differs, pass explicit arguments to the helper script.
 
+If `install.sh` detects an OctoEverywhere checkout, it can offer to run this
+helper automatically.
+
 ## Apply
 
 From the KlippyAI checkout on the host:

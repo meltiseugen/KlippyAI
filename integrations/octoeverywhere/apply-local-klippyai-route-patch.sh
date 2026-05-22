@@ -21,6 +21,21 @@ Options:
 EOF
 }
 
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+    return
+  fi
+
+  printf 'sudo is required to run: %s\n' "$1" >&2
+  exit 1
+}
+
 OE_ROOT="${HOME}/octoeverywhere"
 KLIPPYAI_PREFIX="/klippyai"
 KLIPPYAI_PORT="8811"
@@ -395,7 +410,7 @@ printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPP
 printf '  Nav target:  %s\n' "$NAV_TARGET"
 
 if [ "$RESTART_SERVICE" -eq 1 ]; then
-  sudo systemctl restart "$OE_SERVICE"
+  run_root systemctl restart "$OE_SERVICE"
   printf 'Restarted systemd service: %s\n' "$OE_SERVICE"
 fi
 

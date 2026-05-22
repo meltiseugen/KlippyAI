@@ -49,6 +49,13 @@ prompt_default() {
   printf '%s' "${reply:-$default}"
 }
 
+trim_whitespace() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
 require_linux() {
   [[ "$(uname -s)" == "Linux" ]] || die "This uninstaller only supports Linux hosts."
 }
@@ -301,6 +308,7 @@ Remove nginx include:  $REMOVE_NGINX_INCLUDE
 Remove data dir:       $REMOVE_DATA_DIR
 Remove nginx snippet:  $REMOVE_NGINX_SNIPPET
 Remove checkout dir:   $REMOVE_CHECKOUT_DIR
+Remove update macro:   $REMOVE_UPDATE_MACRO_INTEGRATION
 
 EOF
 }
@@ -363,6 +371,18 @@ main() {
   KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH="${KLIPPYAI_MOONRAKER_CONFIG_DIR}/klippyai-moonraker.cfg"
   KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH="${KLIPPYAI_PRINTER_DATA_ROOT%/}/moonraker.asvc"
   KLIPPYAI_MAINSAIL_NAV_HREF="/klippyai/"
+  KLIPPYAI_UPDATE_RUNNER_PATH="/usr/local/bin/klippyai-self-update"
+  KLIPPYAI_UPDATE_SUDOERS_PATH="/etc/sudoers.d/klippyai-self-update"
+  KLIPPYAI_UPDATE_MACRO_CFG_PATH="${KLIPPYAI_MAINSAIL_CONFIG_DIR%/}/klippyai-update-macro.cfg"
+  KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "config_context" "root_config_file" || true)"
+  KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE="$(trim_whitespace "$KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE")"
+  if [[ -z "${KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE:-}" ]]; then
+    KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH="${KLIPPYAI_MAINSAIL_CONFIG_DIR%/}/printer.cfg"
+  elif [[ "$KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE" == /* ]]; then
+    KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH="$KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE"
+  else
+    KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH="${KLIPPYAI_MAINSAIL_CONFIG_DIR%/}/$KLIPPYAI_KLIPPER_ROOT_CONFIG_VALUE"
+  fi
 
   if confirm "Remove the Mainsail custom-navigation entry?" "Y"; then
     REMOVE_MAINSAIL_NAV="yes"
@@ -396,6 +416,16 @@ main() {
     REMOVE_CHECKOUT_DIR="yes"
   else
     REMOVE_CHECKOUT_DIR="no"
+  fi
+
+  if [[ -f "$KLIPPYAI_UPDATE_MACRO_CFG_PATH" || -f "$KLIPPYAI_UPDATE_RUNNER_PATH" || -f "$KLIPPYAI_UPDATE_SUDOERS_PATH" ]]; then
+    if confirm "Remove the optional UPDATE_KLIPPYAI macro integration?" "Y"; then
+      REMOVE_UPDATE_MACRO_INTEGRATION="yes"
+    else
+      REMOVE_UPDATE_MACRO_INTEGRATION="no"
+    fi
+  else
+    REMOVE_UPDATE_MACRO_INTEGRATION="no"
   fi
 
   print_summary
@@ -432,6 +462,15 @@ main() {
   remove_file_if_present "$KLIPPYAI_CFG_PATH"
   remove_file_if_present "$ENV_FILE"
 
+  if [[ "$REMOVE_UPDATE_MACRO_INTEGRATION" == "yes" ]]; then
+    if [[ -f "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH" ]]; then
+      remove_line_from_file "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH" "[include $(basename "$KLIPPYAI_UPDATE_MACRO_CFG_PATH")]"
+    fi
+    remove_file_if_present "$KLIPPYAI_UPDATE_MACRO_CFG_PATH"
+    remove_file_if_present "$KLIPPYAI_UPDATE_RUNNER_PATH"
+    remove_file_if_present "$KLIPPYAI_UPDATE_SUDOERS_PATH"
+  fi
+
   if [[ "$REMOVE_NGINX_INCLUDE" == "yes" ]]; then
     remove_trimmed_line_from_file "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH" "include ${NGINX_SNIPPET_PATH};"
     log "Testing and reloading nginx."
@@ -464,6 +503,7 @@ Removed:
 - KlippyAI runtime config
 - Moonraker include entry and allowed-services entry
 - KlippyAI environment file
+- optional UPDATE_KLIPPYAI macro artifacts when selected
 
 Manual follow-up:
 1. Restart Moonraker:

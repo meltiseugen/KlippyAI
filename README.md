@@ -186,6 +186,8 @@ The installer currently guides the user through:
 - optionally patching the selected Mainsail nginx server block to include that snippet
 - writing KlippyAI runtime logs to `printer_data/logs/klippyai.log`
 - optionally installing a Mainsail navigation link in `.theme/navi.json`
+- when `gcode_shell_command` is detected, optionally generating an `UPDATE_KLIPPYAI` macro that pulls the repo and restarts `klippyai-agent`
+- when OctoEverywhere is detected, optionally applying the local OE `/klippyai/` route patch automatically
 
 KlippyAI requires Python `3.10+`. The installer now checks that explicitly and recreates an older `.venv` if a previous attempt bootstrapped one with Python `3.9` or older. For Bullseye-era printer images such as BIGTREETECH CB1, use [deployment/python/install-python310.sh](deployment/python/install-python310.sh) or follow [docs/python310-install.md](docs/python310-install.md) before rerunning `./install.sh`.
 
@@ -200,6 +202,7 @@ After installation, the recommended `v1` flow is:
 Important limitations:
 
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
+- the optional `UPDATE_KLIPPYAI` macro depends on `gcode_shell_command` support and writes a narrow sudoers rule for its helper script
 - changing `service_user` or `project_checkout_path` in `klippyai.cfg` does not rewrite the systemd unit automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
 
@@ -256,7 +259,8 @@ This patch modifies the local OctoEverywhere checkout, not Mainsail itself. It
 adds a `/klippyai/... -> 127.0.0.1:8811/...` route inside OctoEverywhere's
 Moonraker-side router and overrides the `KlippyAI` sidebar click behavior when
 loaded via `*.octoeverywhere.com`, with support for opening KlippyAI in a new
-tab.
+tab. If the installer detects an OctoEverywhere checkout, it can offer to apply
+this patch automatically.
 
 Use it only if you are comfortable carrying a local OctoEverywhere patch across
 future OE updates.
