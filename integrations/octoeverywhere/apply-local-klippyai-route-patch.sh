@@ -201,14 +201,28 @@ router_file.write_text(router_text, encoding="utf-8")
 ui_text = ui_file.read_text(encoding="utf-8")
 if nav_target == "_blank":
     navigation_action = """            oe_log("Opening KlippyAI in a new tab.");
-            var popup = window.open(klippyAiHref, "_blank", "noopener,noreferrer");
+            var resolvedUrl = new URL(klippyAiHref, window.location.origin);
+            resolvedUrl.searchParams.set("_klippyai_nav", String(Date.now()));
+            var popup = window.open("about:blank", "_blank");
             if(popup == null)
             {
                 oe_log("Browser blocked the KlippyAI popup.");
             }
-            else if(typeof popup.focus === "function")
+            else
             {
-                popup.focus();
+                try
+                {
+                    popup.opener = null;
+                }
+                catch(_error)
+                {
+                    // Ignore cross-window opener assignment issues.
+                }
+                popup.location.replace(resolvedUrl.toString());
+                if(typeof popup.focus === "function")
+                {
+                    popup.focus();
+                }
             }
 """
 else:
@@ -226,6 +240,52 @@ ui_block = f"""    // KlippyAI local route patch start
 
         var klippyAiHref = "{klippyai_prefix_with_slash}";
         var klippyAiHrefNoSlash = klippyAiHref.endsWith("/") ? klippyAiHref.substring(0, klippyAiHref.length - 1) : klippyAiHref;
+
+        function oe_reset_klippyai_nav_state(link)
+        {{
+            if(!(link instanceof HTMLElement))
+            {{
+                return;
+            }}
+
+            var clearClasses = function(element)
+            {{
+                if(!(element instanceof HTMLElement))
+                {{
+                    return;
+                }}
+                if(typeof element.blur === "function")
+                {{
+                    element.blur();
+                }}
+                element.removeAttribute("aria-current");
+                element.classList.remove(
+                    "router-link-active",
+                    "router-link-exact-active",
+                    "v-list-item--active",
+                    "v-item--active",
+                    "primary--text",
+                    "text--accent-4",
+                    "focus-visible"
+                );
+            }};
+
+            var listItem = link.closest(".v-list-item, li");
+            var clearAll = function()
+            {{
+                clearClasses(link);
+                clearClasses(listItem);
+            }};
+
+            clearAll();
+            window.requestAnimationFrame(function()
+            {{
+                clearAll();
+                window.requestAnimationFrame(clearAll);
+            }});
+            window.setTimeout(clearAll, 0);
+            window.setTimeout(clearAll, 100);
+        }}
 
         document.addEventListener("click", function(event)
         {{
@@ -259,6 +319,7 @@ ui_block = f"""    // KlippyAI local route patch start
             }}
             event.cancelBubble = true;
             event.returnValue = false;
+            oe_reset_klippyai_nav_state(link);
 {navigation_action.rstrip()}
         }}, true);
     }}
