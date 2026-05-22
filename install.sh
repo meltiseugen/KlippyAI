@@ -593,72 +593,125 @@ write_cfg_file() {
 # - Keep API keys in /etc/klippyai/klippyai.env, not in this file.
 
 [install]
+# Printer data root used by Klipper and Moonraker.
+# Example: /home/biqu/printer_data
 printer_data_root = $KLIPPYAI_PRINTER_DATA_ROOT
+# Config directory that contains klippyai.cfg and other editable printer config.
+# Example: /home/biqu/printer_data/config
 mainsail_config_dir = $KLIPPYAI_MAINSAIL_CONFIG_DIR
 
 [printer_identity]
-# Installer-populated printer profile identity. You can edit these later if
-# KlippyAI detected the wrong hardware names or firmware flavor.
-# host_model = host computer / SBC model, for example BigTreeTech CB1
-# mainboard = printer controller board model, for example BTT Manta E3EZ
-# toolhead = toolhead board / electronics, for example BTT EBB36 or FYSETC H36 Combo
+# Main firmware flavor running on the printer stack.
+# Examples: Kalico, Klipper
 firmware_flavor =
+# Firmware version string reported by the host.
+# Examples: v2026.05.00-4, v0.13.0-221
 firmware_version =
+# Host computer / SBC model.
+# Examples: BigTreeTech CB1, Raspberry Pi 4 Model B
 host_model =
+# Linux distribution running on the host.
+# Examples: Debian GNU/Linux 11 (bullseye) 11, Armbian 24.2 Bookworm
 host_distribution =
+# Printer controller board model.
+# Examples: BTT Manta E3EZ, BTT Octopus Pro
 mainboard =
+# Toolhead board / electronics model.
+# Examples: BTT EBB36, FYSETC H36 Combo, Orbiter Nitehawk
 toolhead =
 
 [printer_capabilities]
+# Installed probe family, or none when no probe is present.
+# Examples: none, bltouch, beacon, eddy
 probe_type = none
+# Installed accelerometer family, or none when not configured.
+# Examples: none, adxl345, lis2dw
 accelerometer = none
+# Installed filament sensor family, or none when not configured.
+# Examples: none, switch, motion
 filament_sensor = none
+# Whether bed mesh is already configured in the printer setup.
+# Examples: true, false
 bed_mesh_configured = false
+# Whether input shaper is already configured in the printer setup.
+# Examples: true, false
 input_shaper_configured = false
+# Whether the printer uses CAN bus anywhere in the setup.
+# Examples: true, false
 canbus_enabled = false
+# Comma-separated addons detected or manually declared.
+# Examples: OctoEverywhere, KAMP, KlipperScreen
 addons =
 
 [config_context]
-# Optional KlippyAI-only overrides for config collection.
-# Leave blank to use the detected active root config and include tree.
+# Root Klipper config file to treat as the entry point for context collection.
+# Examples: printer.cfg, machines/voron/printer-main.cfg
 root_config_file =
+# Comma-separated glob patterns to exclude from KlippyAI config collection.
+# Examples: backups/**, archive/**, timelapse/**
 ignore_globs =
 
 [server]
+# Local TCP port used by the klippyai-agent service.
+# Examples: 8811, 9911
 port = $KLIPPYAI_PORT
+# Public reverse-proxy path where KlippyAI is served.
+# Examples: /klippyai, /ai
 root_path = $KLIPPYAI_ROOT_PATH
+# Directory used by KlippyAI for local runtime data.
+# Examples: /var/lib/klippyai, /srv/klippyai/data
 data_dir = $KLIPPYAI_DATA_DIR
+# SQLite checkpoint database path used by KlippyAI.
+# Examples: /var/lib/klippyai/checkpoints.sqlite, /srv/klippyai/checkpoints.sqlite
 checkpoint_db = $KLIPPYAI_CHECKPOINT_DB
-# KlippyAI runtime is read-only for now. This must remain false.
+# Reserved for future write actions. Keep this false.
+# Example: false
 enable_write_actions = $KLIPPYAI_ENABLE_WRITE_ACTIONS
 
 [llm]
+# Backend provider used for chat responses.
+# Examples: stub, openai
 llm_provider = $KLIPPYAI_LLM_PROVIDER
-# You can change this later in klippyai.cfg and restart klippyai-agent.
+# OpenAI model name used when llm_provider = openai.
+# Examples: gpt-5.4-mini, gpt-5.5
 openai_model = $KLIPPYAI_OPENAI_MODEL
 
 [logs]
+# Whether KlippyAI should collect host log files for diagnostics.
+# Examples: true, false
 collect_host_logs = $KLIPPYAI_COLLECT_HOST_LOGS
+# Directory that contains Klipper, Moonraker, and KlippyAI log files.
+# Examples: /home/biqu/printer_data/logs, /srv/printer_data/logs
 logs_dir_path = $KLIPPYAI_LOGS_DIR_PATH
+# KlippyAI runtime log filename inside logs_dir_path.
+# Examples: klippyai.log, ai-agent.log
 agent_log_file_name = $KLIPPYAI_AGENT_LOG_FILE_NAME
+# Logging verbosity for the KlippyAI runtime log.
+# Examples: INFO, DEBUG, WARNING
 agent_log_level = $KLIPPYAI_AGENT_LOG_LEVEL
+# Default number of lines to take from each current log file when no override exists.
+# Examples: 100, 200
 log_tail_lines_default = $KLIPPYAI_LOG_TAIL_LINES_DEFAULT
-# Optional denylist for current host log files. Supports exact names, bare stems,
-# and glob patterns, for example: klippyai.log, crowsnest, *_debug.log
+# Comma-separated denylist for current host log files by name, stem, or glob.
+# Examples: klippyai.log, crowsnest, *_debug.log
 excluded_logs =
 
 [log_tail_lines]
-# Override the automatic tail length for specific current log files by stem.
+# Per-log line-count overrides keyed by log stem.
 # Examples:
-# - klippy.log -> klippy
-# - moonraker.log -> moonraker
-# - klippyai.log -> klippyai
+# - klippy.log -> klippy = 100
+# - moonraker.log -> moonraker = 200
+# - klippyai.log -> klippyai = 100
 klippy = 100
 moonraker = 200
 klippyai = 100
 
 [system]
+# Whether KlippyAI should collect systemctl and journal diagnostics.
+# Examples: true, false
 collect_systemd_diagnostics = $KLIPPYAI_COLLECT_SYSTEMD_DIAGNOSTICS
+# Number of journal lines to include per service when diagnostics are collected.
+# Examples: 100, 200, 400
 journal_lines = $KLIPPYAI_JOURNAL_LINES
 EOF
 
