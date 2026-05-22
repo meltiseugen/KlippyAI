@@ -248,7 +248,7 @@ def _build_shell_nav(root_base: str) -> list[dict[str, Any]]:
                 "label": label,
                 "href": resolved_href,
                 "icon_svg": _SHELL_ICON_SVGS[icon_name],
-                "active": label == "KlippyAI",
+                "active": False,
             }
         )
     return items
