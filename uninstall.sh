@@ -158,6 +158,8 @@ get_cfg_value() {
       }
       match(line, /[:=]/)
       value = substr(line, RSTART + 1)
+      sub(/[ \t]+#.*/, "", value)
+      sub(/[ \t]+;.*/, "", value)
       print trim(value)
       exit
     }

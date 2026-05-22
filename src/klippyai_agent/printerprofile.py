@@ -14,7 +14,7 @@ from klippyai_agent.settings import Settings
 
 ProfileConfidence = Literal["low", "medium", "high"]
 _INI_SECTION_PATTERN = re.compile(r"^\s*\[([^\]]+)\]\s*$")
-_INI_OPTION_PATTERN = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*([:=])\s*(.*?)\s*$")
+_INI_OPTION_PATTERN = re.compile(r"^(\s*)([A-Za-z0-9_.-]+)(\s*[:=]\s*)(.*?)(\s+(?:#|;).*)?\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,7 +294,10 @@ def write_profile_to_cfg(
     root_config_file: str | None = None,
     overwrite: bool = False,
 ) -> None:
-    parser = configparser.ConfigParser(interpolation=None)
+    parser = configparser.ConfigParser(
+        interpolation=None,
+        inline_comment_prefixes=("#", ";"),
+    )
     parser.read(config_file, encoding="utf-8")
 
     section_values = {
@@ -446,14 +449,18 @@ def _rewrite_ini_section_block(
             rewritten.append(line)
             continue
 
-        key = option_match.group(1).strip().lower()
-        separator = option_match.group(2)
+        leading = option_match.group(1)
+        raw_key = option_match.group(2)
+        separator = option_match.group(3)
+        key = raw_key.strip().lower()
+        suffix = option_match.group(5) or ""
         if key in removed_option_names:
             continue
         if key in values:
             if key in seen_keys:
                 continue
-            rewritten.append(f"{key}{separator} {values[key]}{newline}")
+            spacer = "" if not suffix else " "
+            rewritten.append(f"{leading}{raw_key}{separator}{values[key]}{spacer}{suffix.lstrip()}{newline}")
             seen_keys.add(key)
             continue
         rewritten.append(line)

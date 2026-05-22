@@ -225,17 +225,15 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
     config_file.write_text(
         "# Firmware comment should be preserved\n"
         "[printer_identity]\n"
-        "# Main firmware flavor running on the printer stack.\n"
-        "firmware_flavor:\n"
-        "mainboard:\n"
-        "mainboard_mcu: legacy\n"
-        "toolhead:\n"
-        "toolhead_board: legacy\n"
+        "firmware_flavor:  # Main firmware flavor running on the printer stack.\n"
+        "mainboard:  # Printer controller board model.\n"
+        "mainboard_mcu: legacy  # Legacy MCU field.\n"
+        "toolhead:  # Toolhead board / electronics model.\n"
+        "toolhead_board: legacy  # Legacy toolhead board field.\n"
         "\n[printer_capabilities]\n"
-        "# Installed probe family, or none when no probe is present.\n"
-        "canbus_enabled: false\n"
-        "camera_stack: legacy\n"
-        "addons:\n"
+        "canbus_enabled: false  # Whether the printer uses CAN anywhere.\n"
+        "camera_stack: legacy  # Legacy camera stack field.\n"
+        "addons:  # Comma-separated addons.\n"
         "\n[printer_geometry]\n"
         "kinematics: corexy\n"
         "build_volume_x: 350\n"
@@ -286,16 +284,16 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
 
     contents = config_file.read_text(encoding="utf-8")
     assert "# Firmware comment should be preserved" in contents
-    assert "# Main firmware flavor running on the printer stack." in contents
-    assert "# Installed probe family, or none when no probe is present." in contents
-    assert "firmware_flavor: Kalico" in contents
-    assert "toolhead: BTT EBB36" in contents
+    assert "firmware_flavor: Kalico  # Main firmware flavor running on the printer stack." in contents
+    assert "mainboard:  # Printer controller board model." in contents
+    assert "toolhead: BTT EBB36  # Toolhead board / electronics model." in contents
     assert "probe_type: beacon" in contents
     assert "accelerometer: adxl345" in contents
     assert "filament_sensor: switch" in contents
     assert "bed_mesh_configured: true" in contents
     assert "input_shaper_configured: true" in contents
-    assert "canbus_enabled: true" in contents
+    assert "canbus_enabled: true  # Whether the printer uses CAN anywhere." in contents
+    assert "addons: Beacon, Crowsnest, Eddy, OctoEverywhere  # Comma-separated addons." in contents
     assert "root_config_file: printer.cfg" in contents
     assert "[printer_geometry]" not in contents
     assert "mainboard_mcu:" not in contents

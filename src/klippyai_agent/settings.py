@@ -177,7 +177,10 @@ def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:
     if not config_file.exists() or not config_file.is_file():
         return {}
 
-    parser = configparser.ConfigParser(interpolation=None)
+    parser = configparser.ConfigParser(
+        interpolation=None,
+        inline_comment_prefixes=("#", ";"),
+    )
     parser.read(config_file, encoding="utf-8")
 
     field_names = set(Settings.model_fields)
