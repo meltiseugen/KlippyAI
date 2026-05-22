@@ -10,7 +10,7 @@ The recommended `v1` Mainsail integration should stay deliberately thin.
 
 ## Recommended Pattern
 
-Use Mainsail's documented custom navigation support and add a `KlippyAI` entry in `.theme/navi.json`.
+Use Mainsail's documented custom navigation support and add a `KlippyAI` entry in `.theme/navi.json`. The recommended entry opens KlippyAI in a new browser tab so the main Mainsail view stays intact.
 
 Example:
 
@@ -19,7 +19,7 @@ Example:
   {
     "title": "KlippyAI",
     "href": "/klippyai/",
-    "target": "_self",
+    "target": "_blank",
     "position": 85
   }
 ]

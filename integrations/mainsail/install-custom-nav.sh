@@ -4,7 +4,7 @@ set -euo pipefail
 
 TITLE="KlippyAI"
 HREF="/klippyai/"
-TARGET="_self"
+TARGET="_blank"
 POSITION="85"
 ICON=""
 CONFIG_DIR=""

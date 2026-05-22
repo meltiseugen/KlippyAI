@@ -205,7 +205,7 @@ Important limitations:
 
 ### Recommended Mainsail Integration
 
-The supported low-coupling integration is a custom navigation entry in Mainsail's `.theme/navi.json` that points to `/klippyai/`.
+The supported low-coupling integration is a custom navigation entry in Mainsail's `.theme/navi.json` that points to `/klippyai/` and opens KlippyAI in a new browser tab by default.
 
 The repository includes:
 
@@ -219,7 +219,7 @@ Example navigation entry:
   {
     "title": "KlippyAI",
     "href": "/klippyai/",
-    "target": "_self",
+    "target": "_blank",
     "position": 85
   }
 ]

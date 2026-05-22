@@ -7,6 +7,7 @@ This directory contains both the recommended low-coupling Mainsail integration a
 The default `v1` path is a supported custom navigation entry in Mainsail:
 
 - it points to `/klippyai/`
+- it opens KlippyAI in a new browser tab by default
 - it does not require forking or patching Mainsail
 - it survives upstream Mainsail web updates much better than direct file modifications
 

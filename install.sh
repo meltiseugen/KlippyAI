@@ -694,7 +694,7 @@ install_mainsail_custom_nav() {
     --config-dir "$KLIPPYAI_MAINSAIL_CONFIG_DIR" \
     --href "$href" \
     --title "KlippyAI" \
-    --target "_self" \
+    --target "_blank" \
     --position 85
 }
 
