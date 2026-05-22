@@ -204,8 +204,11 @@ if nav_target == "_blank":
             var popup = window.open(klippyAiHref, "_blank", "noopener,noreferrer");
             if(popup == null)
             {
-                oe_log("Browser blocked the KlippyAI popup, falling back to same-tab navigation.");
-                window.location.assign(klippyAiHref);
+                oe_log("Browser blocked the KlippyAI popup.");
+            }
+            else if(typeof popup.focus === "function")
+            {
+                popup.focus();
             }
 """
 else:
@@ -239,8 +242,23 @@ ui_block = f"""    // KlippyAI local route patch start
                 return;
             }}
 
+            if(link instanceof HTMLAnchorElement)
+            {{
+                link.target = "{nav_target}";
+                if("{nav_target}" === "_blank")
+                {{
+                    link.rel = "noopener noreferrer";
+                }}
+            }}
+
             event.preventDefault();
             event.stopPropagation();
+            if(typeof event.stopImmediatePropagation === "function")
+            {{
+                event.stopImmediatePropagation();
+            }}
+            event.cancelBubble = true;
+            event.returnValue = false;
 {navigation_action.rstrip()}
         }}, true);
     }}
