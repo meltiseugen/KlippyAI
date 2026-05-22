@@ -223,20 +223,23 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
 async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -> None:
     config_file = tmp_path / "klippyai.cfg"
     config_file.write_text(
+        "# Firmware comment should be preserved\n"
         "[printer_identity]\n"
-        "firmware_flavor =\n"
-        "mainboard =\n"
-        "mainboard_mcu = legacy\n"
-        "toolhead =\n"
-        "toolhead_board = legacy\n"
+        "# Main firmware flavor running on the printer stack.\n"
+        "firmware_flavor:\n"
+        "mainboard:\n"
+        "mainboard_mcu: legacy\n"
+        "toolhead:\n"
+        "toolhead_board: legacy\n"
         "\n[printer_capabilities]\n"
-        "canbus_enabled = false\n"
-        "camera_stack = legacy\n"
-        "addons =\n"
+        "# Installed probe family, or none when no probe is present.\n"
+        "canbus_enabled: false\n"
+        "camera_stack: legacy\n"
+        "addons:\n"
         "\n[printer_geometry]\n"
-        "kinematics = corexy\n"
-        "build_volume_x = 350\n"
-        "extruder_count = 1\n",
+        "kinematics: corexy\n"
+        "build_volume_x: 350\n"
+        "extruder_count: 1\n",
         encoding="utf-8",
     )
 
@@ -282,16 +285,19 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
     write_profile_to_cfg(config_file, profile, root_config_file="printer.cfg")
 
     contents = config_file.read_text(encoding="utf-8")
-    assert "firmware_flavor = Kalico" in contents
-    assert "toolhead = BTT EBB36" in contents
-    assert "probe_type = beacon" in contents
-    assert "accelerometer = adxl345" in contents
-    assert "filament_sensor = switch" in contents
-    assert "bed_mesh_configured = true" in contents
-    assert "input_shaper_configured = true" in contents
-    assert "canbus_enabled = true" in contents
-    assert "root_config_file = printer.cfg" in contents
+    assert "# Firmware comment should be preserved" in contents
+    assert "# Main firmware flavor running on the printer stack." in contents
+    assert "# Installed probe family, or none when no probe is present." in contents
+    assert "firmware_flavor: Kalico" in contents
+    assert "toolhead: BTT EBB36" in contents
+    assert "probe_type: beacon" in contents
+    assert "accelerometer: adxl345" in contents
+    assert "filament_sensor: switch" in contents
+    assert "bed_mesh_configured: true" in contents
+    assert "input_shaper_configured: true" in contents
+    assert "canbus_enabled: true" in contents
+    assert "root_config_file: printer.cfg" in contents
     assert "[printer_geometry]" not in contents
-    assert "mainboard_mcu =" not in contents
-    assert "toolhead_board =" not in contents
-    assert "camera_stack =" not in contents
+    assert "mainboard_mcu:" not in contents
+    assert "toolhead_board:" not in contents
+    assert "camera_stack:" not in contents

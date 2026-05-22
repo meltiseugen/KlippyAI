@@ -176,10 +176,10 @@ The installer currently guides the user through:
 - creating a Python virtual environment
 - installing the package
 - writing `/etc/klippyai/klippyai.env` for the config-file path, API key, and hidden install metadata
-- writing `printer_data/config/klippyai.cfg`
+- writing `printer_data/config/klippyai/klippyai.cfg`
 - detecting printer profile data once and persisting it into `[printer_identity]` and `[printer_capabilities]`
-- writing `klippyai-moonraker.cfg` next to `moonraker.conf` (usually `printer_data/config/klippyai-moonraker.cfg`)
-- appending `[include klippyai-moonraker.cfg]` to `moonraker.conf`
+- writing `printer_data/config/klippyai/klippyai-moonraker.cfg`
+- appending an include like `[include klippyai/klippyai-moonraker.cfg]` to `moonraker.conf`
 - adding `klippyai-agent` to `printer_data/moonraker.asvc`
 - generating and enabling a `systemd` service
 - generating an nginx location snippet for `/klippyai/`
@@ -295,14 +295,14 @@ Then open the standalone UI in a browser:
 
 KlippyAI now uses two configuration surfaces:
 
-- `printer_data/config/klippyai.cfg` for host-editable runtime settings
+- `printer_data/config/klippyai/klippyai.cfg` for host-editable runtime settings
 - `/etc/klippyai/klippyai.env` for secrets and hidden bootstrap/install metadata such as the config-file path and API key
 
 The installer also creates Moonraker integration files:
 
-- `klippyai-moonraker.cfg` next to `moonraker.conf`, usually `printer_data/config/klippyai-moonraker.cfg`, for the `update_manager` entry
+- `printer_data/config/klippyai/klippyai-moonraker.cfg` for the `update_manager` entry
 - `printer_data/moonraker.asvc` to allow Moonraker to restart `klippyai-agent` from frontends such as Mainsail
-- an `[include klippyai-moonraker.cfg]` line in `moonraker.conf`
+- an include like `[include klippyai/klippyai-moonraker.cfg]` in `moonraker.conf`
 
 `klippyai.cfg` is loaded at service start. After editing it from Mainsail, restart the agent with:
 
@@ -372,7 +372,7 @@ If you want to repopulate the saved printer profile sections from the current ho
 ```bash
 source /home/<service-user>/KlippyAI/.venv/bin/activate
 klippyai-detect-profile \
-  --config-file /home/<service-user>/printer_data/config/klippyai.cfg \
+  --config-file /home/<service-user>/printer_data/config/klippyai/klippyai.cfg \
   --moonraker-url http://127.0.0.1:7125 \
   --printer-data-root /home/<service-user>/printer_data \
   --overwrite
@@ -416,7 +416,7 @@ The intended security stance is:
 - Printer-profile detection currently runs once during install and uses Moonraker `printer`, `machine`, and `update_manager` APIs together with config parsing and Klipper repo-origin hints.
 - Diagnostics prompts now include the current Klipper config snapshot in addition to logs, system context, and the saved printer profile.
 - Runtime profile awareness now comes from the saved `[printer_identity]` and `[printer_capabilities]` sections in `klippyai.cfg`.
-- Host-editable runtime config now lives in `printer_data/config/klippyai.cfg`, which is intended to be editable from Mainsail.
+- Host-editable runtime config now lives in `printer_data/config/klippyai/klippyai.cfg`, which is intended to be editable from Mainsail.
 - The current UI can be opened directly at `/klippyai/` or embedded via `/klippyai/embed`.
 
 ## Status And Roadmap

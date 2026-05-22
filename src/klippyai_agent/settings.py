@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     app_name: str = "KlippyAI"
     environment: str = "development"
-    config_file: Path = Path("/home/pi/printer_data/config/klippyai.cfg")
+    config_file: Path = Path("/home/pi/printer_data/config/klippyai/klippyai.cfg")
     service_user: str = "pi"
     project_checkout_path: Path = Path("/home/pi/KlippyAI")
     mainsail_config_dir: Path = Path("/home/pi/printer_data/config")

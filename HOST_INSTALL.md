@@ -102,10 +102,10 @@ The installer will:
 - create a Python virtual environment in the repo
 - install the package into that venv
 - write `/etc/klippyai/klippyai.env` for the config-file path, API key, and hidden install metadata
-- write `printer_data/config/klippyai.cfg`
+- write `printer_data/config/klippyai/klippyai.cfg`
 - detect the printer profile once and save it into `klippyai.cfg`
-- write `printer_data/config/klippyai-moonraker.cfg`
-- append `[include klippyai-moonraker.cfg]` to `moonraker.conf` if needed
+- write `printer_data/config/klippyai/klippyai-moonraker.cfg`
+- append an include like `[include klippyai/klippyai-moonraker.cfg]` to `moonraker.conf` if needed
 - add `klippyai-agent` to `printer_data/moonraker.asvc`
 - install and start `klippyai-agent.service`
 - generate `/etc/klippyai/nginx-location.conf`
@@ -185,11 +185,11 @@ Optional OctoEverywhere path:
 
 Editable runtime config:
 
-- `/home/<service-user>/printer_data/config/klippyai.cfg`
+- `/home/<service-user>/printer_data/config/klippyai/klippyai.cfg`
 
 Optional Klipper update macro files:
 
-- `/home/<service-user>/printer_data/config/klippyai-update-macro.cfg`
+- `/home/<service-user>/printer_data/config/klippyai/klippyai-macros.cfg`
 - `/usr/local/bin/klippyai-self-update`
 - `/etc/sudoers.d/klippyai-self-update`
 
@@ -199,7 +199,7 @@ Server-side API key and hidden install metadata:
 
 Moonraker include:
 
-- `/home/<service-user>/printer_data/config/klippyai-moonraker.cfg`
+- `/home/<service-user>/printer_data/config/klippyai/klippyai-moonraker.cfg`
 
 Generated nginx snippet:
 
@@ -213,7 +213,7 @@ KlippyAI runtime log:
 
 Edit:
 
-- `printer_data/config/klippyai.cfg`
+- `printer_data/config/klippyai/klippyai.cfg`
 
 Change:
 
@@ -235,7 +235,7 @@ If the detected profile is wrong or you want to refresh it:
 
 ```bash
 /home/<service-user>/KlippyAI/.venv/bin/klippyai-detect-profile \
-  --config-file /home/<service-user>/printer_data/config/klippyai.cfg \
+  --config-file /home/<service-user>/printer_data/config/klippyai/klippyai.cfg \
   --moonraker-url http://127.0.0.1:7125 \
   --printer-data-root /home/<service-user>/printer_data \
   --overwrite
@@ -294,8 +294,8 @@ Check the generated files:
 
 ```bash
 cat /etc/klippyai/klippyai.env
-cat /home/<service-user>/printer_data/config/klippyai.cfg
-cat /home/<service-user>/printer_data/config/klippyai-moonraker.cfg
+cat /home/<service-user>/printer_data/config/klippyai/klippyai.cfg
+cat /home/<service-user>/printer_data/config/klippyai/klippyai-moonraker.cfg
 cat /home/<service-user>/printer_data/moonraker.asvc
 ```
 

@@ -254,6 +254,48 @@ file_has_trimmed_line() {
   ' "$path"
 }
 
+remove_line_from_file_if_present() {
+  local path="$1"
+  local line_to_remove="$2"
+  [[ -f "$path" ]] || return 0
+
+  if ! file_has_trimmed_line "$path" "$line_to_remove"; then
+    return 0
+  fi
+
+  local temp_file
+  temp_file="$(mktemp)"
+  local mode
+  local owner
+  local group
+  mode="$(stat -c '%a' "$path")"
+  owner="$(stat -c '%u' "$path")"
+  group="$(stat -c '%g' "$path")"
+  awk -v needle="$line_to_remove" '
+    function trim(value) {
+      gsub(/^[ \t]+|[ \t]+$/, "", value)
+      return value
+    }
+    {
+      if (trim($0) != needle) {
+        print $0
+      }
+    }
+  ' "$path" >"$temp_file"
+  backup_file "$path"
+  run_root install -o "$owner" -g "$group" -m "$mode" "$temp_file" "$path"
+  rm -f "$temp_file"
+  log "Updated $path"
+}
+
+retire_legacy_file_if_present() {
+  local path="$1"
+  [[ -e "$path" ]] || return 0
+  backup_file "$path"
+  run_root rm -f -- "$path"
+  log "Removed legacy file $path"
+}
+
 detect_default_install_user() {
   if [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != "root" ]]; then
     printf '%s' "${SUDO_USER}"
@@ -562,7 +604,7 @@ write_env_file() {
     printf 'KLIPPYAI_NGINX_SERVER_BLOCK_PATH="%s"\n' "$(escape_env_value "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH")"
     printf 'KLIPPYAI_HOST="%s"\n' "$(escape_env_value "127.0.0.1")"
     printf 'KLIPPYAI_MOONRAKER_URL="%s"\n' "$(escape_env_value "$KLIPPYAI_MOONRAKER_URL")"
-    printf 'KLIPPYAI_MANAGED_CONFIG_DIR_NAME="%s"\n' "$(escape_env_value "klippyai")"
+    printf 'KLIPPYAI_MANAGED_CONFIG_DIR_NAME="%s"\n' "$(escape_env_value "$KLIPPYAI_MANAGED_CONFIG_DIR_NAME")"
     printf 'KLIPPYAI_SESSION_TTL_SECONDS="%s"\n' "$(escape_env_value "3600")"
     printf 'KLIPPYAI_MOONRAKER_SERVICE_NAME="%s"\n' "$(escape_env_value "$KLIPPYAI_MOONRAKER_SERVICE_NAME")"
     printf 'KLIPPYAI_KLIPPER_SERVICE_NAME="%s"\n' "$(escape_env_value "$KLIPPYAI_KLIPPER_SERVICE_NAME")"
@@ -595,127 +637,127 @@ write_cfg_file() {
 [install]
 # Printer data root used by Klipper and Moonraker.
 # Example: /home/biqu/printer_data
-printer_data_root = $KLIPPYAI_PRINTER_DATA_ROOT
-# Config directory that contains klippyai.cfg and other editable printer config.
+printer_data_root: $KLIPPYAI_PRINTER_DATA_ROOT
+# Config directory that contains the managed klippyai/ folder and other editable printer config.
 # Example: /home/biqu/printer_data/config
-mainsail_config_dir = $KLIPPYAI_MAINSAIL_CONFIG_DIR
+mainsail_config_dir: $KLIPPYAI_MAINSAIL_CONFIG_DIR
 
 [printer_identity]
 # Main firmware flavor running on the printer stack.
 # Examples: Kalico, Klipper
-firmware_flavor =
+firmware_flavor:
 # Firmware version string reported by the host.
 # Examples: v2026.05.00-4, v0.13.0-221
-firmware_version =
+firmware_version:
 # Host computer / SBC model.
 # Examples: BigTreeTech CB1, Raspberry Pi 4 Model B
-host_model =
+host_model:
 # Linux distribution running on the host.
 # Examples: Debian GNU/Linux 11 (bullseye) 11, Armbian 24.2 Bookworm
-host_distribution =
+host_distribution:
 # Printer controller board model.
 # Examples: BTT Manta E3EZ, BTT Octopus Pro
-mainboard =
+mainboard:
 # Toolhead board / electronics model.
 # Examples: BTT EBB36, FYSETC H36 Combo, Orbiter Nitehawk
-toolhead =
+toolhead:
 
 [printer_capabilities]
 # Installed probe family, or none when no probe is present.
 # Examples: none, bltouch, beacon, eddy
-probe_type = none
+probe_type: none
 # Installed accelerometer family, or none when not configured.
 # Examples: none, adxl345, lis2dw
-accelerometer = none
+accelerometer: none
 # Installed filament sensor family, or none when not configured.
 # Examples: none, switch, motion
-filament_sensor = none
+filament_sensor: none
 # Whether bed mesh is already configured in the printer setup.
 # Examples: true, false
-bed_mesh_configured = false
+bed_mesh_configured: false
 # Whether input shaper is already configured in the printer setup.
 # Examples: true, false
-input_shaper_configured = false
+input_shaper_configured: false
 # Whether the printer uses CAN bus anywhere in the setup.
 # Examples: true, false
-canbus_enabled = false
+canbus_enabled: false
 # Comma-separated addons detected or manually declared.
 # Examples: OctoEverywhere, KAMP, KlipperScreen
-addons =
+addons:
 
 [config_context]
 # Root Klipper config file to treat as the entry point for context collection.
 # Examples: printer.cfg, machines/voron/printer-main.cfg
-root_config_file =
+root_config_file:
 # Comma-separated glob patterns to exclude from KlippyAI config collection.
 # Examples: backups/**, archive/**, timelapse/**
-ignore_globs =
+ignore_globs:
 
 [server]
 # Local TCP port used by the klippyai-agent service.
 # Examples: 8811, 9911
-port = $KLIPPYAI_PORT
+port: $KLIPPYAI_PORT
 # Public reverse-proxy path where KlippyAI is served.
 # Examples: /klippyai, /ai
-root_path = $KLIPPYAI_ROOT_PATH
+root_path: $KLIPPYAI_ROOT_PATH
 # Directory used by KlippyAI for local runtime data.
 # Examples: /var/lib/klippyai, /srv/klippyai/data
-data_dir = $KLIPPYAI_DATA_DIR
+data_dir: $KLIPPYAI_DATA_DIR
 # SQLite checkpoint database path used by KlippyAI.
 # Examples: /var/lib/klippyai/checkpoints.sqlite, /srv/klippyai/checkpoints.sqlite
-checkpoint_db = $KLIPPYAI_CHECKPOINT_DB
+checkpoint_db: $KLIPPYAI_CHECKPOINT_DB
 # Reserved for future write actions. Keep this false.
 # Example: false
-enable_write_actions = $KLIPPYAI_ENABLE_WRITE_ACTIONS
+enable_write_actions: $KLIPPYAI_ENABLE_WRITE_ACTIONS
 
 [llm]
 # Backend provider used for chat responses.
 # Examples: stub, openai
-llm_provider = $KLIPPYAI_LLM_PROVIDER
+llm_provider: $KLIPPYAI_LLM_PROVIDER
 # OpenAI model name used when llm_provider = openai.
 # Examples: gpt-5.4-mini, gpt-5.5
-openai_model = $KLIPPYAI_OPENAI_MODEL
+openai_model: $KLIPPYAI_OPENAI_MODEL
 
 [logs]
 # Whether KlippyAI should collect host log files for diagnostics.
 # Examples: true, false
-collect_host_logs = $KLIPPYAI_COLLECT_HOST_LOGS
+collect_host_logs: $KLIPPYAI_COLLECT_HOST_LOGS
 # Directory that contains Klipper, Moonraker, and KlippyAI log files.
 # Examples: /home/biqu/printer_data/logs, /srv/printer_data/logs
-logs_dir_path = $KLIPPYAI_LOGS_DIR_PATH
+logs_dir_path: $KLIPPYAI_LOGS_DIR_PATH
 # KlippyAI runtime log filename inside logs_dir_path.
 # Examples: klippyai.log, ai-agent.log
-agent_log_file_name = $KLIPPYAI_AGENT_LOG_FILE_NAME
+agent_log_file_name: $KLIPPYAI_AGENT_LOG_FILE_NAME
 # Logging verbosity for the KlippyAI runtime log.
 # Examples: INFO, DEBUG, WARNING
-agent_log_level = $KLIPPYAI_AGENT_LOG_LEVEL
+agent_log_level: $KLIPPYAI_AGENT_LOG_LEVEL
 # Default number of lines to take from each current log file when no override exists.
 # Examples: 100, 200
-log_tail_lines_default = $KLIPPYAI_LOG_TAIL_LINES_DEFAULT
+log_tail_lines_default: $KLIPPYAI_LOG_TAIL_LINES_DEFAULT
 # Comma-separated denylist for current host log files by name, stem, or glob.
 # Examples: klippyai.log, crowsnest, *_debug.log
-excluded_logs =
+excluded_logs:
 
 [log_tail_lines]
 # Per-log line-count overrides keyed by log stem.
 # Examples:
-# - klippy.log -> klippy = 100
-# - moonraker.log -> moonraker = 200
-# - klippyai.log -> klippyai = 100
-klippy = 100
-moonraker = 200
-klippyai = 100
+# - klippy.log -> klippy: 100
+# - moonraker.log -> moonraker: 200
+# - klippyai.log -> klippyai: 100
+klippy: 100
+moonraker: 200
+klippyai: 100
 
 [system]
 # Whether KlippyAI should collect systemctl and journal diagnostics.
 # Examples: true, false
-collect_systemd_diagnostics = $KLIPPYAI_COLLECT_SYSTEMD_DIAGNOSTICS
+collect_systemd_diagnostics: $KLIPPYAI_COLLECT_SYSTEMD_DIAGNOSTICS
 # Number of journal lines to include per service when diagnostics are collected.
 # Examples: 100, 200, 400
-journal_lines = $KLIPPYAI_JOURNAL_LINES
+journal_lines: $KLIPPYAI_JOURNAL_LINES
 EOF
 
-  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MAINSAIL_CONFIG_DIR"
+  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MANAGED_CONFIG_DIR_PATH"
   backup_file "$KLIPPYAI_CFG_PATH"
   run_root install -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 664 "$temp_file" "$KLIPPYAI_CFG_PATH"
   rm -f "$temp_file"
@@ -742,7 +784,7 @@ info_tags:
     desc=KlippyAI
 EOF
 
-  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MOONRAKER_CONFIG_DIR"
+  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MANAGED_CONFIG_DIR_PATH"
   backup_file "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH"
   run_root install -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 664 "$temp_file" "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH"
   rm -f "$temp_file"
@@ -815,11 +857,35 @@ resolve_klipper_root_config_path() {
   printf '%s/%s' "$KLIPPYAI_MAINSAIL_CONFIG_DIR" "$root_value"
 }
 
+relative_config_include_path() {
+  local target_path="$1"
+  local source_config_path="$2"
+
+  python3 - "$target_path" "${source_config_path%/*}" <<'PY'
+import os
+import sys
+
+target = os.path.abspath(sys.argv[1])
+source_dir = os.path.abspath(sys.argv[2])
+print(os.path.relpath(target, source_dir).replace(os.sep, "/"))
+PY
+}
+
+build_include_line() {
+  local target_path="$1"
+  local source_config_path="$2"
+  printf '[include %s]' "$(relative_config_include_path "$target_path" "$source_config_path")"
+}
+
 ensure_moonraker_include() {
   local include_line
-  include_line="[include $(basename "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH")]"
+  include_line="$(build_include_line "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH" "$KLIPPYAI_MOONRAKER_CONFIG_PATH")"
+  local legacy_include_line="[include $(basename "$KLIPPYAI_LEGACY_MOONRAKER_EXTENSION_CFG_PATH")]"
 
   [[ -f "$KLIPPYAI_MOONRAKER_CONFIG_PATH" ]] || die "Moonraker config file not found: $KLIPPYAI_MOONRAKER_CONFIG_PATH"
+  if [[ "$legacy_include_line" != "$include_line" ]]; then
+    remove_line_from_file_if_present "$KLIPPYAI_MOONRAKER_CONFIG_PATH" "$legacy_include_line"
+  fi
   if grep -Fqx "$include_line" "$KLIPPYAI_MOONRAKER_CONFIG_PATH"; then
     return
   fi
@@ -1006,7 +1072,7 @@ gcode:
     RUN_SHELL_COMMAND CMD=klippyai_update
 EOF
 
-  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MAINSAIL_CONFIG_DIR"
+  run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MANAGED_CONFIG_DIR_PATH"
   backup_file "$KLIPPYAI_UPDATE_MACRO_CFG_PATH"
   run_root install -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 664 "$temp_file" "$KLIPPYAI_UPDATE_MACRO_CFG_PATH"
   rm -f "$temp_file"
@@ -1023,7 +1089,13 @@ install_update_macro_integration() {
   write_update_runner_script
   write_update_sudoers_file
   write_update_macro_cfg
-  ensure_generic_include "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH" "[include $(basename "$KLIPPYAI_UPDATE_MACRO_CFG_PATH")]"
+  if [[ "$KLIPPYAI_LEGACY_UPDATE_MACRO_CFG_PATH" != "$KLIPPYAI_UPDATE_MACRO_CFG_PATH" ]]; then
+    remove_line_from_file_if_present "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH" "[include $(basename "$KLIPPYAI_LEGACY_UPDATE_MACRO_CFG_PATH")]"
+    retire_legacy_file_if_present "$KLIPPYAI_LEGACY_UPDATE_MACRO_CFG_PATH"
+  fi
+  ensure_generic_include \
+    "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH" \
+    "$(build_include_line "$KLIPPYAI_UPDATE_MACRO_CFG_PATH" "$KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH")"
 }
 
 ensure_nginx_include() {
@@ -1139,6 +1211,7 @@ Moonraker URL:        $KLIPPYAI_MOONRAKER_URL
 Moonraker config:     $KLIPPYAI_MOONRAKER_CONFIG_PATH
 Printer data root:    $KLIPPYAI_PRINTER_DATA_ROOT
 Mainsail config dir:  $KLIPPYAI_MAINSAIL_CONFIG_DIR
+Managed config dir:   $KLIPPYAI_MANAGED_CONFIG_DIR_PATH
 KlippyAI cfg:         $KLIPPYAI_CFG_PATH
 Moonraker ext cfg:    $KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH
 Provider:             $KLIPPYAI_LLM_PROVIDER
@@ -1165,6 +1238,7 @@ main() {
   require_cmd git
   require_cmd grep
   require_cmd install
+  require_cmd python3
   require_cmd stat
   require_cmd systemctl
 
@@ -1193,11 +1267,15 @@ main() {
   ensure_no_spaces "$KLIPPYAI_PRINTER_DATA_ROOT" "Printer data root"
   KLIPPYAI_MAINSAIL_CONFIG_DIR="$(prompt_default "Mainsail config directory" "$KLIPPYAI_PRINTER_DATA_ROOT/config")"
   ensure_no_spaces "$KLIPPYAI_MAINSAIL_CONFIG_DIR" "Mainsail config directory"
-  KLIPPYAI_CFG_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/klippyai.cfg"
+  KLIPPYAI_MANAGED_CONFIG_DIR_NAME="klippyai"
+  KLIPPYAI_MANAGED_CONFIG_DIR_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/$KLIPPYAI_MANAGED_CONFIG_DIR_NAME"
+  KLIPPYAI_CFG_PATH="$KLIPPYAI_MANAGED_CONFIG_DIR_PATH/klippyai.cfg"
+  KLIPPYAI_LEGACY_CFG_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/klippyai.cfg"
   KLIPPYAI_MOONRAKER_CONFIG_PATH="$(detect_moonraker_config_path "$INSTALL_HOME" "$KLIPPYAI_MAINSAIL_CONFIG_DIR")"
   [[ -f "$KLIPPYAI_MOONRAKER_CONFIG_PATH" ]] || die "Moonraker config file not found: $KLIPPYAI_MOONRAKER_CONFIG_PATH"
   KLIPPYAI_MOONRAKER_CONFIG_DIR="${KLIPPYAI_MOONRAKER_CONFIG_PATH%/*}"
-  KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH="$KLIPPYAI_MOONRAKER_CONFIG_DIR/klippyai-moonraker.cfg"
+  KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH="$KLIPPYAI_MANAGED_CONFIG_DIR_PATH/klippyai-moonraker.cfg"
+  KLIPPYAI_LEGACY_MOONRAKER_EXTENSION_CFG_PATH="$KLIPPYAI_MOONRAKER_CONFIG_DIR/klippyai-moonraker.cfg"
   KLIPPYAI_MOONRAKER_ALLOWED_SERVICES_PATH="$KLIPPYAI_PRINTER_DATA_ROOT/moonraker.asvc"
   KLIPPYAI_GIT_ORIGIN="$(detect_git_origin)"
   KLIPPYAI_GIT_PRIMARY_BRANCH="$(detect_git_primary_branch)"
@@ -1226,7 +1304,8 @@ main() {
   KLIPPYAI_OE_SERVICE_NAME="$(detect_octoeverywhere_service_name || true)"
   KLIPPYAI_UPDATE_RUNNER_PATH="/usr/local/bin/klippyai-self-update"
   KLIPPYAI_UPDATE_SUDOERS_PATH="/etc/sudoers.d/klippyai-self-update"
-  KLIPPYAI_UPDATE_MACRO_CFG_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/klippyai-update-macro.cfg"
+  KLIPPYAI_UPDATE_MACRO_CFG_PATH="$KLIPPYAI_MANAGED_CONFIG_DIR_PATH/klippyai-macros.cfg"
+  KLIPPYAI_LEGACY_UPDATE_MACRO_CFG_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/klippyai-update-macro.cfg"
   KLIPPYAI_KLIPPER_SYSTEM_USER="$(detect_systemd_unit_user "$KLIPPYAI_KLIPPER_SERVICE_NAME" "$INSTALL_USER")"
   KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH=""
   INSTALL_UPDATE_MACRO="no"
@@ -1329,6 +1408,9 @@ main() {
 
   log "Writing ${KLIPPYAI_CFG_PATH}"
   write_cfg_file
+  if [[ "$KLIPPYAI_LEGACY_CFG_PATH" != "$KLIPPYAI_CFG_PATH" ]]; then
+    retire_legacy_file_if_present "$KLIPPYAI_LEGACY_CFG_PATH"
+  fi
 
   log "Detecting printer profile into ${KLIPPYAI_CFG_PATH}"
   if ! run_as_user "$INSTALL_DIR/.venv/bin/klippyai-detect-profile" \
@@ -1342,6 +1424,9 @@ main() {
 
   log "Writing ${KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH}"
   write_moonraker_extension_cfg
+  if [[ "$KLIPPYAI_LEGACY_MOONRAKER_EXTENSION_CFG_PATH" != "$KLIPPYAI_MOONRAKER_EXTENSION_CFG_PATH" ]]; then
+    retire_legacy_file_if_present "$KLIPPYAI_LEGACY_MOONRAKER_EXTENSION_CFG_PATH"
+  fi
 
   log "Adding KlippyAI include to ${KLIPPYAI_MOONRAKER_CONFIG_PATH}"
   ensure_moonraker_include

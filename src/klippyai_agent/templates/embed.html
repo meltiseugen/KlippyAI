@@ -16,16 +16,15 @@
             <span class="brand-mark-bar bar-c"></span>
           </span>
           <span class="brand-copy">
-            <span class="brand-label">Diagnostics assistant</span>
             <strong class="brand-title">KlippyAI</strong>
+            <span class="brand-label">Diagnostics Assistant</span>
           </span>
         </div>
 
         <section class="sidebar-history">
           <div class="sidebar-history-header">
             <div>
-              <p class="eyebrow">Chats</p>
-              <h2>Recent chats</h2>
+              <p class="eyebrow">Chat History</p>
             </div>
             <button id="new-chat-button" class="secondary-button" type="button">New chat</button>
           </div>
@@ -44,30 +43,15 @@
               <span></span>
               <span></span>
             </button>
-            <div class="topbar-copy">
-              <p class="topbar-eyebrow">KlippyAI</p>
-              <h1 class="topbar-title">Diagnostics</h1>
+            <div class="status-panel topbar-status-panel">
+              <span id="provider-badge" class="badge">Provider: loading</span>
+              <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
+              <span id="profile-badge" class="badge muted">Profile: loading</span>
             </div>
           </div>
         </header>
 
         <main class="workspace-main">
-          <section class="hero-panel">
-            <div class="hero-copy">
-              <p class="eyebrow">KlippyAI</p>
-              <h2>Diagnostics and configuration help.</h2>
-              <p class="hero-summary">
-                Ask what failed or request config help. KlippyAI automatically includes the configured tail from current host log files, and you can paste extra config or log text directly into the question box when needed.
-              </p>
-            </div>
-
-            <div class="status-panel">
-              <span id="provider-badge" class="badge">Provider: loading</span>
-              <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
-              <span id="profile-badge" class="badge muted">Profile: loading</span>
-            </div>
-          </section>
-
           <div class="conversation-panel">
             <section id="messages" class="messages">
               <article class="message assistant">

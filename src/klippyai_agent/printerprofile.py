@@ -13,6 +13,8 @@ from klippyai_agent.printerconfig import ConfigCollector, ConfigDocument, Config
 from klippyai_agent.settings import Settings
 
 ProfileConfidence = Literal["low", "medium", "high"]
+_INI_SECTION_PATTERN = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+_INI_OPTION_PATTERN = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*([:=])\s*(.*?)\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,8 +339,150 @@ def write_profile_to_cfg(
                 continue
             parser.set(section, key, value)
 
-    with config_file.open("w", encoding="utf-8") as handle:
-        parser.write(handle)
+    persisted_values = {
+        section: {key: parser.get(section, key, fallback="") for key in values}
+        for section, values in section_values.items()
+        if parser.has_section(section)
+    }
+    _rewrite_cfg_preserving_comments(
+        config_file,
+        section_values=persisted_values,
+        removed_sections={"printer_geometry"},
+        removed_options={
+            "printer_identity": {"mainboard_mcu", "toolhead_board"},
+            "printer_capabilities": {"camera_stack"},
+        },
+    )
+
+
+def _rewrite_cfg_preserving_comments(
+    config_file: Path,
+    *,
+    section_values: dict[str, dict[str, str]],
+    removed_sections: set[str],
+    removed_options: dict[str, set[str]],
+) -> None:
+    original_text = config_file.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in original_text else "\n"
+    lines = original_text.splitlines(keepends=True)
+
+    prefix, section_blocks = _split_ini_blocks(lines)
+    seen_sections: set[str] = set()
+    rewritten_blocks: list[str] = []
+
+    for section_name, block_lines in section_blocks:
+        normalized = section_name.strip().lower()
+        if normalized in removed_sections:
+            continue
+        seen_sections.add(normalized)
+        rewritten_blocks.append(
+            _rewrite_ini_section_block(
+                block_lines,
+                values=section_values.get(normalized, {}),
+                removed_option_names=removed_options.get(normalized, set()),
+                newline=newline,
+            )
+        )
+
+    for section_name, values in section_values.items():
+        if section_name in seen_sections:
+            continue
+        rewritten_blocks.append(
+            _build_ini_section_block(
+                section_name,
+                values=values,
+                newline=newline,
+            )
+        )
+
+    rewritten_text = "".join(prefix) + "".join(rewritten_blocks)
+    if original_text.endswith(("\n", "\r")) and rewritten_text and not rewritten_text.endswith(("\n", "\r")):
+        rewritten_text += newline
+    config_file.write_text(rewritten_text, encoding="utf-8")
+
+
+def _split_ini_blocks(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    prefix: list[str] = []
+    blocks: list[tuple[str, list[str]]] = []
+    current_name: str | None = None
+    current_block: list[str] = []
+
+    for line in lines:
+        match = _INI_SECTION_PATTERN.match(line)
+        if match:
+            if current_name is None:
+                if current_block:
+                    prefix.extend(current_block)
+            else:
+                blocks.append((current_name, current_block))
+            current_name = match.group(1)
+            current_block = [line]
+            continue
+        current_block.append(line)
+
+    if current_name is None:
+        prefix.extend(current_block)
+    else:
+        blocks.append((current_name, current_block))
+    return prefix, blocks
+
+
+def _rewrite_ini_section_block(
+    block_lines: list[str],
+    *,
+    values: dict[str, str],
+    removed_option_names: set[str],
+    newline: str,
+) -> str:
+    if not block_lines:
+        return ""
+
+    rewritten: list[str] = [block_lines[0]]
+    seen_keys: set[str] = set()
+
+    for line in block_lines[1:]:
+        option_match = _INI_OPTION_PATTERN.match(line)
+        if not option_match:
+            rewritten.append(line)
+            continue
+
+        key = option_match.group(1).strip().lower()
+        separator = option_match.group(2)
+        if key in removed_option_names:
+            continue
+        if key in values:
+            if key in seen_keys:
+                continue
+            rewritten.append(f"{key}{separator} {values[key]}{newline}")
+            seen_keys.add(key)
+            continue
+        rewritten.append(line)
+
+    trailing_blanks: list[str] = []
+    while rewritten[1:] and rewritten[-1].strip() == "":
+        trailing_blanks.append(rewritten.pop())
+    trailing_blanks.reverse()
+
+    for key, value in values.items():
+        if key in seen_keys:
+            continue
+        rewritten.append(f"{key}: {value}{newline}")
+
+    rewritten.extend(trailing_blanks)
+    return "".join(rewritten)
+
+
+def _build_ini_section_block(
+    section_name: str,
+    *,
+    values: dict[str, str],
+    newline: str,
+) -> str:
+    lines = [f"[{section_name}]{newline}"]
+    for key, value in values.items():
+        lines.append(f"{key}: {value}{newline}")
+    lines.append(newline)
+    return "".join(lines)
 
 
 def _split_addon_names(value: str | None) -> list[str]:
