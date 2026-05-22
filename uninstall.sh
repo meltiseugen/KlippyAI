@@ -331,9 +331,18 @@ main() {
 
   KLIPPYAI_MAINSAIL_CONFIG_DIR="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "mainsail_config_dir" || true)"
   KLIPPYAI_PRINTER_DATA_ROOT="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "printer_data_root" || true)"
-  KLIPPYAI_PROJECT_CHECKOUT_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "project_checkout_path" || true)"
-  KLIPPYAI_SERVICE_USER="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "service_user" || true)"
-  KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "nginx_server_block_path" || true)"
+  KLIPPYAI_PROJECT_CHECKOUT_PATH="$(extract_env_value "$ENV_FILE" "KLIPPYAI_PROJECT_CHECKOUT_PATH" || true)"
+  if [[ -z "${KLIPPYAI_PROJECT_CHECKOUT_PATH:-}" ]]; then
+    KLIPPYAI_PROJECT_CHECKOUT_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "project_checkout_path" || true)"
+  fi
+  KLIPPYAI_SERVICE_USER="$(extract_env_value "$ENV_FILE" "KLIPPYAI_SERVICE_USER" || true)"
+  if [[ -z "${KLIPPYAI_SERVICE_USER:-}" ]]; then
+    KLIPPYAI_SERVICE_USER="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "service_user" || true)"
+  fi
+  KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(extract_env_value "$ENV_FILE" "KLIPPYAI_NGINX_SERVER_BLOCK_PATH" || true)"
+  if [[ -z "${KLIPPYAI_NGINX_SERVER_BLOCK_PATH:-}" ]]; then
+    KLIPPYAI_NGINX_SERVER_BLOCK_PATH="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "install" "nginx_server_block_path" || true)"
+  fi
   KLIPPYAI_DATA_DIR="$(get_cfg_value "$KLIPPYAI_CFG_PATH" "server" "data_dir" || true)"
 
   if [[ -z "${KLIPPYAI_SERVICE_USER:-}" ]] && [[ -n "${SUDO_USER:-}" ]] && [[ "${SUDO_USER}" != "root" ]]; then

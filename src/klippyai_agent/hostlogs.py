@@ -25,13 +25,14 @@ class HostLogCollector:
         self,
         printer_data_root: Path,
         *,
-        logs_dir_name: str = "logs",
+        logs_dir_path: str | Path = "logs",
         default_tail_lines: int = 100,
         tail_lines_by_log: dict[str, int] | None = None,
         excluded_logs: list[str] | tuple[str, ...] | set[str] | None = None,
         artifact_char_limit: int = 18_000,
     ) -> None:
-        self._logs_dir = printer_data_root / logs_dir_name
+        candidate = Path(logs_dir_path).expanduser()
+        self._logs_dir = candidate if candidate.is_absolute() else printer_data_root / candidate
         self._default_tail_lines = default_tail_lines
         self._tail_lines_by_log = {
             str(key).strip().lower(): int(value)

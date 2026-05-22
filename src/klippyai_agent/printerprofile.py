@@ -90,8 +90,13 @@ class PrinterProfile:
         if self.canbus_enabled:
             parts.append("CAN")
         if self.addons:
-            addon_names = ", ".join(addon.name for addon in self.addons[:2])
-            parts.append(addon_names)
+            visible_addons = [
+                addon.name
+                for addon in self.addons
+                if addon.name.strip() and addon.name.lower() != "sonar"
+            ]
+            if visible_addons:
+                parts.append(", ".join(visible_addons[:2]))
         return " | ".join(parts[:4])
 
     def to_prompt_block(self) -> str:
@@ -246,6 +251,7 @@ class PrinterProfile:
 
 def build_profile_from_settings(settings: Settings) -> PrinterProfile:
     addon_names = _split_addon_names(settings.addons)
+    persisted_toolhead_board = settings.toolhead or settings.toolhead_board
     return PrinterProfile(
         firmware_flavor=settings.firmware_flavor,
         firmware_version=settings.firmware_version,
@@ -253,8 +259,8 @@ def build_profile_from_settings(settings: Settings) -> PrinterProfile:
         host_distribution=settings.host_distribution,
         mainboard=settings.mainboard,
         mainboard_mcu=settings.mainboard_mcu,
-        toolhead=settings.toolhead,
-        toolhead_board=settings.toolhead_board,
+        toolhead=None,
+        toolhead_board=persisted_toolhead_board,
         probe_type=settings.probe_type,
         accelerometer=settings.accelerometer,
         filament_sensor=settings.filament_sensor,
@@ -296,15 +302,12 @@ def write_profile_to_cfg(
             "host_model": profile.host_model or "",
             "host_distribution": profile.host_distribution or "",
             "mainboard": profile.mainboard or "",
-            "mainboard_mcu": profile.mainboard_mcu or "",
-            "toolhead": profile.toolhead or "",
-            "toolhead_board": profile.toolhead_board or "",
+            "toolhead": profile.toolhead_board or profile.toolhead or "",
         },
         "printer_capabilities": {
             "probe_type": profile.probe_type or "",
             "accelerometer": profile.accelerometer or "",
             "filament_sensor": profile.filament_sensor or "",
-            "camera_stack": profile.camera_stack or "",
             "bed_mesh_configured": "true" if profile.bed_mesh_configured else "false",
             "input_shaper_configured": "true" if profile.input_shaper_configured else "false",
             "canbus_enabled": "true" if profile.canbus_enabled else "false",
@@ -316,6 +319,11 @@ def write_profile_to_cfg(
     }
 
     parser.remove_section("printer_geometry")
+    if parser.has_section("printer_identity"):
+        parser.remove_option("printer_identity", "mainboard_mcu")
+        parser.remove_option("printer_identity", "toolhead_board")
+    if parser.has_section("printer_capabilities"):
+        parser.remove_option("printer_capabilities", "camera_stack")
 
     for section, values in section_values.items():
         if not parser.has_section(section):

@@ -195,8 +195,7 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
         host_distribution="Debian 12",
         mainboard="BTT Octopus Pro",
         mainboard_mcu="stm32f446xx",
-        toolhead="Stealthburner",
-        toolhead_board="BTT EBB36",
+        toolhead="BTT EBB36",
         probe_type="beacon",
         accelerometer="adxl345",
         filament_sensor="none",
@@ -211,7 +210,8 @@ def test_build_profile_from_settings_uses_persisted_identity() -> None:
 
     assert profile.firmware_flavor == "Kalico"
     assert profile.mainboard == "BTT Octopus Pro"
-    assert profile.toolhead == "Stealthburner"
+    assert profile.toolhead is None
+    assert profile.toolhead_board == "BTT EBB36"
     assert profile.probe_type == "beacon"
     assert profile.filament_sensor == "none"
     assert profile.bed_mesh_configured is True
@@ -226,9 +226,12 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
         "[printer_identity]\n"
         "firmware_flavor =\n"
         "mainboard =\n"
+        "mainboard_mcu = legacy\n"
         "toolhead =\n"
+        "toolhead_board = legacy\n"
         "\n[printer_capabilities]\n"
         "canbus_enabled = false\n"
+        "camera_stack = legacy\n"
         "addons =\n"
         "\n[printer_geometry]\n"
         "kinematics = corexy\n"
@@ -280,15 +283,15 @@ async def test_write_profile_to_cfg_persists_detected_identity(tmp_path: Path) -
 
     contents = config_file.read_text(encoding="utf-8")
     assert "firmware_flavor = Kalico" in contents
-    assert "mainboard_mcu = Klipper stm32f446xx" in contents
-    assert "toolhead = Stealthburner" in contents
-    assert "toolhead_board = BTT EBB36" in contents
+    assert "toolhead = BTT EBB36" in contents
     assert "probe_type = beacon" in contents
     assert "accelerometer = adxl345" in contents
     assert "filament_sensor = switch" in contents
-    assert "camera_stack = crowsnest" in contents
     assert "bed_mesh_configured = true" in contents
     assert "input_shaper_configured = true" in contents
     assert "canbus_enabled = true" in contents
     assert "root_config_file = printer.cfg" in contents
     assert "[printer_geometry]" not in contents
+    assert "mainboard_mcu =" not in contents
+    assert "toolhead_board =" not in contents
+    assert "camera_stack =" not in contents

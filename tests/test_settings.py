@@ -9,8 +9,6 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     cfg_path = tmp_path / "klippyai.cfg"
     cfg_path.write_text(
         "[install]\n"
-        "service_user = pi\n"
-        "project_checkout_path = /home/pi/KlippyAI\n"
         "printer_data_root = /home/pi/printer_data\n"
         "mainsail_config_dir = /home/pi/printer_data/config\n\n"
         "[printer_identity]\n"
@@ -24,18 +22,15 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "root_config_file = machines/voron/printer-main.cfg\n"
         "ignore_globs = backups/**, archive/**\n\n"
         "[server]\n"
-        "moonraker_url = http://127.0.0.1:7125\n"
         "port = 9911\n"
         "root_path = /klippyai\n"
         "data_dir = /var/lib/klippyai\n"
         "checkpoint_db = /var/lib/klippyai/checkpoints.sqlite\n"
         "enable_write_actions = true\n\n"
         "[logs]\n"
-        "logs_dir_name = logs\n"
+        "logs_dir_path = /home/pi/printer_data/logs\n"
         "agent_log_file_name = klippyai.log\n"
         "agent_log_level = debug\n"
-        "agent_log_max_bytes = 4096\n"
-        "agent_log_backup_count = 2\n"
         "excluded_logs = klippyai.log, crowsnest, *_debug.log\n"
         "log_tail_lines_default = 100\n\n"
         "[log_tail_lines]\n"
@@ -48,12 +43,15 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     )
 
     monkeypatch.setenv("KLIPPYAI_CONFIG_FILE", str(cfg_path))
+    monkeypatch.setenv("KLIPPYAI_MOONRAKER_URL", "http://127.0.0.1:7125")
     get_settings.cache_clear()
     settings = get_settings()
 
     assert settings.config_file == cfg_path
     assert settings.port == 9911
     assert settings.root_path == "/klippyai"
+    assert settings.public_base_url == "http://127.0.0.1:9911"
+    assert settings.moonraker_url == "http://127.0.0.1:7125"
     assert settings.enable_write_actions is False
     assert settings.agent_log_level == "DEBUG"
     assert settings.agent_log_path() == Path("/home/pi/printer_data/logs/klippyai.log")

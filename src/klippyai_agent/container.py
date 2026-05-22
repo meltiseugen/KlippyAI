@@ -33,7 +33,7 @@ def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
     if settings.collect_host_logs:
         host_logs = HostLogCollector(
             settings.printer_data_root,
-            logs_dir_name=settings.logs_dir_name,
+            logs_dir_path=settings.logs_dir_path,
             default_tail_lines=settings.log_tail_lines_default,
             tail_lines_by_log=settings.log_tail_lines_overrides,
             excluded_logs=settings.excluded_logs,

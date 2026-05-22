@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8811
     root_path: str = ""
-    public_base_url: str = "http://127.0.0.1:8811"
+    public_base_url: str = ""
     moonraker_url: str = "http://127.0.0.1:7125"
     data_dir: Path = Path(".local/klippyai")
     checkpoint_db: Path = Path(".local/klippyai/checkpoints.sqlite")
@@ -53,14 +53,11 @@ class Settings(BaseSettings):
     managed_config_dir_name: str = "klippyai"
     session_ttl_seconds: int = 3600
     collect_host_logs: bool = True
-    logs_dir_name: str = "logs"
+    logs_dir_path: Path = Path("logs")
     agent_log_file_name: str = "klippyai.log"
     agent_log_level: str = "INFO"
     agent_log_max_bytes: int = 2_097_152
     agent_log_backup_count: int = 5
-    log_max_files_per_family: int = 3
-    log_active_tail_bytes: int = 160_000
-    log_rotated_tail_bytes: int = 80_000
     log_tail_lines_default: int = 100
     log_tail_lines_overrides: dict[str, int] = Field(default_factory=dict)
     excluded_logs: list[str] = Field(default_factory=list)
@@ -154,6 +151,8 @@ class Settings(BaseSettings):
         # forward compatibility, but do not allow it to enable file writes.
         self.enable_write_actions = False
         self.agent_log_level = self.agent_log_level.upper()
+        if not self.public_base_url:
+            self.public_base_url = f"http://{self.host}:{self.port}"
         self.log_tail_lines_overrides = {
             key: value for key, value in self.log_tail_lines_overrides.items() if value > 0
         }
@@ -161,7 +160,9 @@ class Settings(BaseSettings):
         return self
 
     def host_logs_dir(self) -> Path:
-        return self.printer_data_root / self.logs_dir_name
+        if self.logs_dir_path.is_absolute():
+            return self.logs_dir_path
+        return self.printer_data_root / self.logs_dir_path
 
     def agent_log_path(self) -> Path:
         return self.host_logs_dir() / self.agent_log_file_name
@@ -184,7 +185,10 @@ def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:
         "config_context": {
             "root_config_file": "config_root_file",
             "ignore_globs": "config_ignore_globs",
-        }
+        },
+        "logs": {
+            "logs_dir_name": "logs_dir_path",
+        },
     }
     values: dict[str, Any] = {}
     for section in parser.sections():

@@ -12,7 +12,6 @@ const messageInput = document.getElementById("message-input");
 const template = document.getElementById("message-template");
 const shellMenuToggle = document.getElementById("shell-menu-toggle");
 const shellScrim = document.getElementById("shell-scrim");
-const shellNavLinks = Array.from(document.querySelectorAll(".sidebar-nav a"));
 const introMessage =
   document.querySelector("#messages .message.assistant .message-body")?.textContent?.trim() ||
   "Ask what failed or ask for config help.";
@@ -46,12 +45,6 @@ function initializeShellNavigation() {
 
   if (shellScrim) {
     shellScrim.addEventListener("click", () => {
-      setNavigationOpen(false);
-    });
-  }
-
-  for (const link of shellNavLinks) {
-    link.addEventListener("click", () => {
       setNavigationOpen(false);
     });
   }
@@ -471,6 +464,7 @@ function selectConversation(conversationId) {
   renderHistory();
   renderConversation();
   persistState();
+  setNavigationOpen(false);
 }
 
 function startNewChat() {
@@ -537,8 +531,9 @@ function summarizeProfile(profile) {
   if (profile.canbus_enabled) {
     parts.push("CAN");
   }
-  if (profile.addons?.length) {
-    parts.push(profile.addons.slice(0, 2).map((addon) => addon.name).join(", "));
+  const visibleAddons = (profile.addons || []).filter((addon) => addon?.name?.toLowerCase() !== "sonar");
+  if (visibleAddons.length) {
+    parts.push(visibleAddons.slice(0, 2).map((addon) => addon.name).join(", "));
   }
   return parts.length ? `Profile: ${parts.join(" | ")}` : "Profile: unavailable";
 }

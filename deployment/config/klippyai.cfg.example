@@ -5,33 +5,30 @@
 #
 # Notes:
 # - Restart klippyai-agent after editing this file.
-# - `service_user` and `project_checkout_path` are install metadata.
-#   If you change them, rerun install.sh or update the systemd service manually.
+# - Hidden install metadata is stored in `/etc/klippyai/klippyai.env`.
 # - Keep API keys in /etc/klippyai/klippyai.env, not in this file.
 
 [install]
-service_user = pi
-project_checkout_path = /home/pi/KlippyAI
 printer_data_root = /home/pi/printer_data
 mainsail_config_dir = /home/pi/printer_data/config
 
 [printer_identity]
 # Installer-populated printer profile identity. You can edit these later if
 # KlippyAI detected the wrong hardware names or firmware flavor.
+# host_model = host computer / SBC model, for example BigTreeTech CB1
+# mainboard = printer controller board model, for example BTT Manta E3EZ
+# toolhead = toolhead board / electronics, for example BTT EBB36 or FYSETC H36 Combo
 firmware_flavor =
 firmware_version =
 host_model =
 host_distribution =
 mainboard =
-mainboard_mcu =
 toolhead =
-toolhead_board =
 
 [printer_capabilities]
 probe_type = none
 accelerometer = none
 filament_sensor = none
-camera_stack = none
 bed_mesh_configured = false
 input_shaper_configured = false
 canbus_enabled = false
@@ -44,15 +41,10 @@ root_config_file =
 ignore_globs =
 
 [server]
-host = 127.0.0.1
 port = 8811
 root_path = /klippyai
-public_base_url = http://127.0.0.1:8811
-moonraker_url = http://127.0.0.1:7125
 data_dir = /var/lib/klippyai
 checkpoint_db = /var/lib/klippyai/checkpoints.sqlite
-managed_config_dir_name = klippyai
-session_ttl_seconds = 3600
 # KlippyAI runtime is intentionally read-only for now. This is ignored if set true.
 enable_write_actions = false
 
@@ -63,13 +55,10 @@ openai_model = gpt-5.4-mini
 
 [logs]
 collect_host_logs = true
-logs_dir_name = logs
+logs_dir_path = /home/pi/printer_data/logs
 agent_log_file_name = klippyai.log
 agent_log_level = INFO
-agent_log_max_bytes = 2097152
-agent_log_backup_count = 5
 log_tail_lines_default = 100
-log_artifact_char_limit = 18000
 # Optional denylist for current host log files. Supports exact names, bare stems,
 # and glob patterns, for example: klippyai.log, crowsnest, *_debug.log
 excluded_logs =
@@ -86,9 +75,4 @@ klippyai = 100
 
 [system]
 collect_systemd_diagnostics = true
-moonraker_service_name = moonraker.service
-klipper_service_name = klipper.service
 journal_lines = 200
-system_status_artifact_char_limit = 6000
-journal_artifact_char_limit = 16000
-system_command_timeout_seconds = 6

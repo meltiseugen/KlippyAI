@@ -557,6 +557,18 @@ write_env_file() {
   {
     printf 'KLIPPYAI_ENVIRONMENT="%s"\n' "$(escape_env_value "production")"
     printf 'KLIPPYAI_CONFIG_FILE="%s"\n' "$(escape_env_value "$KLIPPYAI_CFG_PATH")"
+    printf 'KLIPPYAI_SERVICE_USER="%s"\n' "$(escape_env_value "$INSTALL_USER")"
+    printf 'KLIPPYAI_PROJECT_CHECKOUT_PATH="%s"\n' "$(escape_env_value "$INSTALL_DIR")"
+    printf 'KLIPPYAI_NGINX_SERVER_BLOCK_PATH="%s"\n' "$(escape_env_value "$KLIPPYAI_NGINX_SERVER_BLOCK_PATH")"
+    printf 'KLIPPYAI_HOST="%s"\n' "$(escape_env_value "127.0.0.1")"
+    printf 'KLIPPYAI_MOONRAKER_URL="%s"\n' "$(escape_env_value "$KLIPPYAI_MOONRAKER_URL")"
+    printf 'KLIPPYAI_MANAGED_CONFIG_DIR_NAME="%s"\n' "$(escape_env_value "klippyai")"
+    printf 'KLIPPYAI_SESSION_TTL_SECONDS="%s"\n' "$(escape_env_value "3600")"
+    printf 'KLIPPYAI_MOONRAKER_SERVICE_NAME="%s"\n' "$(escape_env_value "$KLIPPYAI_MOONRAKER_SERVICE_NAME")"
+    printf 'KLIPPYAI_KLIPPER_SERVICE_NAME="%s"\n' "$(escape_env_value "$KLIPPYAI_KLIPPER_SERVICE_NAME")"
+    printf 'KLIPPYAI_SYSTEM_STATUS_ARTIFACT_CHAR_LIMIT="%s"\n' "$(escape_env_value "$KLIPPYAI_SYSTEM_STATUS_ARTIFACT_CHAR_LIMIT")"
+    printf 'KLIPPYAI_JOURNAL_ARTIFACT_CHAR_LIMIT="%s"\n' "$(escape_env_value "$KLIPPYAI_JOURNAL_ARTIFACT_CHAR_LIMIT")"
+    printf 'KLIPPYAI_SYSTEM_COMMAND_TIMEOUT_SECONDS="%s"\n' "$(escape_env_value "$KLIPPYAI_SYSTEM_COMMAND_TIMEOUT_SECONDS")"
     printf 'KLIPPYAI_OPENAI_API_KEY="%s"\n' "$(escape_env_value "$KLIPPYAI_OPENAI_API_KEY")"
   } >"$temp_file"
 
@@ -577,34 +589,30 @@ write_cfg_file() {
 #
 # Notes:
 # - Restart klippyai-agent after editing this file.
-# - service_user and project_checkout_path are install metadata.
-#   If you change them, rerun install.sh or update the systemd unit manually.
+# - Hidden install metadata is stored in /etc/klippyai/klippyai.env.
 # - Keep API keys in /etc/klippyai/klippyai.env, not in this file.
 
 [install]
-service_user = $INSTALL_USER
-project_checkout_path = $INSTALL_DIR
 printer_data_root = $KLIPPYAI_PRINTER_DATA_ROOT
 mainsail_config_dir = $KLIPPYAI_MAINSAIL_CONFIG_DIR
-nginx_server_block_path = $KLIPPYAI_NGINX_SERVER_BLOCK_PATH
 
 [printer_identity]
 # Installer-populated printer profile identity. You can edit these later if
 # KlippyAI detected the wrong hardware names or firmware flavor.
+# host_model = host computer / SBC model, for example BigTreeTech CB1
+# mainboard = printer controller board model, for example BTT Manta E3EZ
+# toolhead = toolhead board / electronics, for example BTT EBB36 or FYSETC H36 Combo
 firmware_flavor =
 firmware_version =
 host_model =
 host_distribution =
 mainboard =
-mainboard_mcu =
 toolhead =
-toolhead_board =
 
 [printer_capabilities]
 probe_type = none
 accelerometer = none
 filament_sensor = none
-camera_stack = none
 bed_mesh_configured = false
 input_shaper_configured = false
 canbus_enabled = false
@@ -617,15 +625,10 @@ root_config_file =
 ignore_globs =
 
 [server]
-host = 127.0.0.1
 port = $KLIPPYAI_PORT
 root_path = $KLIPPYAI_ROOT_PATH
-public_base_url = $KLIPPYAI_PUBLIC_BASE_URL
-moonraker_url = $KLIPPYAI_MOONRAKER_URL
 data_dir = $KLIPPYAI_DATA_DIR
 checkpoint_db = $KLIPPYAI_CHECKPOINT_DB
-managed_config_dir_name = klippyai
-session_ttl_seconds = 3600
 # KlippyAI runtime is read-only for now. This must remain false.
 enable_write_actions = $KLIPPYAI_ENABLE_WRITE_ACTIONS
 
@@ -636,24 +639,27 @@ openai_model = $KLIPPYAI_OPENAI_MODEL
 
 [logs]
 collect_host_logs = $KLIPPYAI_COLLECT_HOST_LOGS
-logs_dir_name = $KLIPPYAI_LOGS_DIR_NAME
+logs_dir_path = $KLIPPYAI_LOGS_DIR_PATH
 agent_log_file_name = $KLIPPYAI_AGENT_LOG_FILE_NAME
 agent_log_level = $KLIPPYAI_AGENT_LOG_LEVEL
-agent_log_max_bytes = $KLIPPYAI_AGENT_LOG_MAX_BYTES
-agent_log_backup_count = $KLIPPYAI_AGENT_LOG_BACKUP_COUNT
-log_max_files_per_family = $KLIPPYAI_LOG_MAX_FILES_PER_FAMILY
-log_active_tail_bytes = $KLIPPYAI_LOG_ACTIVE_TAIL_BYTES
-log_rotated_tail_bytes = $KLIPPYAI_LOG_ROTATED_TAIL_BYTES
-log_artifact_char_limit = $KLIPPYAI_LOG_ARTIFACT_CHAR_LIMIT
+log_tail_lines_default = $KLIPPYAI_LOG_TAIL_LINES_DEFAULT
+# Optional denylist for current host log files. Supports exact names, bare stems,
+# and glob patterns, for example: klippyai.log, crowsnest, *_debug.log
+excluded_logs =
+
+[log_tail_lines]
+# Override the automatic tail length for specific current log files by stem.
+# Examples:
+# - klippy.log -> klippy
+# - moonraker.log -> moonraker
+# - klippyai.log -> klippyai
+klippy = 100
+moonraker = 200
+klippyai = 100
 
 [system]
 collect_systemd_diagnostics = $KLIPPYAI_COLLECT_SYSTEMD_DIAGNOSTICS
-moonraker_service_name = $KLIPPYAI_MOONRAKER_SERVICE_NAME
-klipper_service_name = $KLIPPYAI_KLIPPER_SERVICE_NAME
 journal_lines = $KLIPPYAI_JOURNAL_LINES
-system_status_artifact_char_limit = $KLIPPYAI_SYSTEM_STATUS_ARTIFACT_CHAR_LIMIT
-journal_artifact_char_limit = $KLIPPYAI_JOURNAL_ARTIFACT_CHAR_LIMIT
-system_command_timeout_seconds = $KLIPPYAI_SYSTEM_COMMAND_TIMEOUT_SECONDS
 EOF
 
   run_root install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 755 "$KLIPPYAI_MAINSAIL_CONFIG_DIR"
@@ -1090,7 +1096,7 @@ Patch nginx include:  $PATCH_NGINX_INCLUDE
 Local bind port:      $KLIPPYAI_PORT
 Data dir:             $KLIPPYAI_DATA_DIR
 Runtime mode:         read-only
-KlippyAI log file:    $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
+KlippyAI log file:    $KLIPPYAI_LOGS_DIR_PATH/$KLIPPYAI_AGENT_LOG_FILE_NAME
 Mainsail nav link:    $INSTALL_MAINSAIL_NAV
 Update macro:         $INSTALL_UPDATE_MACRO
 OctoEverywhere patch: $INSTALL_OCTOEVERYWHERE_PATCH
@@ -1147,20 +1153,14 @@ main() {
   KLIPPYAI_ROOT_PATH="$(normalize_root_path "$(prompt_default "Reverse-proxy root path" "/klippyai")")"
   KLIPPYAI_PORT="$(prompt_default "Local KlippyAI bind port" "8811")"
   ensure_numeric_port "$KLIPPYAI_PORT"
-  KLIPPYAI_PUBLIC_BASE_URL="http://127.0.0.1:${KLIPPYAI_PORT}"
   KLIPPYAI_DATA_DIR="$(prompt_default "Local KlippyAI data directory" "/var/lib/klippyai")"
   ensure_no_spaces "$KLIPPYAI_DATA_DIR" "Local data directory"
   KLIPPYAI_CHECKPOINT_DB="${KLIPPYAI_DATA_DIR}/checkpoints.sqlite"
   KLIPPYAI_COLLECT_HOST_LOGS="true"
-  KLIPPYAI_LOGS_DIR_NAME="logs"
+  KLIPPYAI_LOGS_DIR_PATH="${KLIPPYAI_PRINTER_DATA_ROOT}/logs"
   KLIPPYAI_AGENT_LOG_FILE_NAME="klippyai.log"
   KLIPPYAI_AGENT_LOG_LEVEL="INFO"
-  KLIPPYAI_AGENT_LOG_MAX_BYTES="2097152"
-  KLIPPYAI_AGENT_LOG_BACKUP_COUNT="5"
-  KLIPPYAI_LOG_MAX_FILES_PER_FAMILY="3"
-  KLIPPYAI_LOG_ACTIVE_TAIL_BYTES="160000"
-  KLIPPYAI_LOG_ROTATED_TAIL_BYTES="80000"
-  KLIPPYAI_LOG_ARTIFACT_CHAR_LIMIT="18000"
+  KLIPPYAI_LOG_TAIL_LINES_DEFAULT="100"
   KLIPPYAI_COLLECT_SYSTEMD_DIAGNOSTICS="true"
   KLIPPYAI_MOONRAKER_SERVICE_NAME="moonraker.service"
   KLIPPYAI_KLIPPER_SERVICE_NAME="klipper.service"
@@ -1351,7 +1351,7 @@ Generated nginx snippet:
   /etc/klippyai/nginx-location.conf
 
 KlippyAI runtime log:
-  $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
+  $KLIPPYAI_LOGS_DIR_PATH/$KLIPPYAI_AGENT_LOG_FILE_NAME
 
 Next steps:
 1. Restart Moonraker so it reloads the KlippyAI include and allowed-services file:
@@ -1359,7 +1359,7 @@ Next steps:
 2. Check the services:
    systemctl status $SERVICE_NAME --no-pager
    systemctl status moonraker --no-pager
-   tail -n 100 $KLIPPYAI_PRINTER_DATA_ROOT/$KLIPPYAI_LOGS_DIR_NAME/$KLIPPYAI_AGENT_LOG_FILE_NAME
+   tail -n 100 $KLIPPYAI_LOGS_DIR_PATH/$KLIPPYAI_AGENT_LOG_FILE_NAME
 3. Open KlippyAI:
    http://<printer-host>${KLIPPYAI_ROOT_PATH}/
 4. After editing ${KLIPPYAI_CFG_PATH}, restart the service:
@@ -1413,7 +1413,6 @@ If you enabled the Mainsail custom navigation entry:
 Current limitations:
 - the optional native Mainsail drawer patch is not installed by this script
 - the KlippyAI runtime is intentionally read-only and will not write printer/config files
-- changing service_user or project_checkout_path in klippyai.cfg does not rewrite systemd automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags like v0.1.0
 
 EOF
@@ -1441,7 +1440,6 @@ If you enabled the Mainsail custom navigation entry:
 Current limitations:
 - the optional native Mainsail drawer patch is not installed by this script
 - the KlippyAI runtime is intentionally read-only and will not write printer/config files
-- changing service_user or project_checkout_path in klippyai.cfg does not rewrite systemd automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags like v0.1.0
 
 EOF

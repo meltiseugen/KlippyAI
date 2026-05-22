@@ -58,6 +58,21 @@ def test_host_log_collector_supports_per_log_tail_lengths(tmp_path: Path) -> Non
     assert "moonraker 50" not in moonraker_artifact.content
 
 
+def test_host_log_collector_supports_absolute_logs_dir_path(tmp_path: Path) -> None:
+    logs_dir = tmp_path / "custom-logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / "klippy.log").write_text("line 1\nline 2\n", encoding="utf-8")
+
+    collector = HostLogCollector(
+        tmp_path / "printer_data",
+        logs_dir_path=logs_dir,
+    )
+    artifacts, notes = collector.collect()
+
+    assert any(artifact.label == "klippy.log" for artifact in artifacts)
+    assert any(f"Loaded 1 current log file(s) from {logs_dir}." in note for note in notes)
+
+
 def test_host_log_collector_detects_klippyai_runtime_logs(tmp_path: Path) -> None:
     logs_dir = tmp_path / "printer_data" / "logs"
     logs_dir.mkdir(parents=True)

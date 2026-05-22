@@ -175,7 +175,7 @@ The installer currently guides the user through:
 - confirming the Mainsail config directory, default `/home/<service-user>/printer_data/config`
 - creating a Python virtual environment
 - installing the package
-- writing `/etc/klippyai/klippyai.env`
+- writing `/etc/klippyai/klippyai.env` for the config-file path, API key, and hidden install metadata
 - writing `printer_data/config/klippyai.cfg`
 - detecting printer profile data once and persisting it into `[printer_identity]` and `[printer_capabilities]`
 - writing `klippyai-moonraker.cfg` next to `moonraker.conf` (usually `printer_data/config/klippyai-moonraker.cfg`)
@@ -203,7 +203,6 @@ Important limitations:
 
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
 - the optional `UPDATE_KLIPPYAI` macro depends on `gcode_shell_command` support and writes a narrow sudoers rule for its helper script
-- changing `service_user` or `project_checkout_path` in `klippyai.cfg` does not rewrite the systemd unit automatically
 - Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
 
 ### Recommended Mainsail Integration
@@ -297,7 +296,7 @@ Then open the standalone UI in a browser:
 KlippyAI now uses two configuration surfaces:
 
 - `printer_data/config/klippyai.cfg` for host-editable runtime settings
-- `/etc/klippyai/klippyai.env` for secrets and bootstrap values such as the config-file path and API key
+- `/etc/klippyai/klippyai.env` for secrets and hidden bootstrap/install metadata such as the config-file path and API key
 
 The installer also creates Moonraker integration files:
 
@@ -313,20 +312,15 @@ sudo systemctl restart klippyai-agent
 
 The main `klippyai.cfg` values are:
 
-- `service_user`: install metadata for the service account
-- `project_checkout_path`: install metadata for the checkout path
 - `firmware_flavor`: installer-detected firmware flavor
 - `firmware_version`: installer-detected firmware version
-- `host_model`: installer-detected host model hint
+- `host_model`: installer-detected host computer / SBC model, for example `BigTreeTech CB1`
 - `host_distribution`: installer-detected host distribution
-- `mainboard`: optional user-declared mainboard model override
-- `mainboard_mcu`: installer-detected mainboard MCU hint
-- `toolhead`: optional user-declared toolhead model override
-- `toolhead_board`: installer-detected toolhead board hint
+- `mainboard`: optional user-declared printer controller board model, for example `BTT Manta E3EZ`
+- `toolhead`: optional user-declared toolhead board / electronics name, for example `BTT EBB36`, `FYSETC H36 Combo`, or `Orbiter Nitehawk`
 - `probe_type`: installer-detected probe family, including explicit `none` when no probe is found
 - `accelerometer`: installer-detected accelerometer family, including explicit `none`
 - `filament_sensor`: installer-detected filament sensor family, including explicit `none`
-- `camera_stack`: installer-detected camera stack, currently `crowsnest` or `none`
 - `bed_mesh_configured`: whether bed mesh is already configured
 - `input_shaper_configured`: whether input shaper is already configured
 - `canbus_enabled`: installer-detected CAN presence flag
@@ -335,20 +329,33 @@ The main `klippyai.cfg` values are:
 - `ignore_globs`: under `[config_context]`, optional ignore patterns for KlippyAI context collection, such as backups or archived config directories
 - `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data`
 - `mainsail_config_dir`: Mainsail-editable config directory, usually `/home/<service-user>/printer_data/config`
-- `moonraker_url`: Moonraker base URL, usually `http://127.0.0.1:7125`
 - `root_path`: public reverse-proxy path, usually `/klippyai`
 - `port`: local KlippyAI bind port, default `8811`
 - `data_dir`: local KlippyAI data directory
 - `llm_provider`: currently `stub` or `openai`
 - `openai_model`: default OpenAI model name, editable in `klippyai.cfg`
-- `agent_log_file_name`, `agent_log_level`, `agent_log_max_bytes`, `agent_log_backup_count`: control the KlippyAI runtime log file under `printer_data/logs`
+- `logs_dir_path`: host log directory path, usually `/home/<service-user>/printer_data/logs`
+- `agent_log_file_name`, `agent_log_level`: control the KlippyAI runtime log file name and level
 - `log_tail_lines_default`: default number of lines to include from each current host log file
 - `[log_tail_lines]`: per-log overrides keyed by log stem, for example `klippy = 100` and `moonraker = 200`
+- `excluded_logs`: optional denylist for current host log files by name, stem, or glob
+- `collect_systemd_diagnostics`: enable or disable service-status and journal collection
+- `journal_lines`: number of journal lines to include per service when diagnostics are collected
 - `enable_write_actions`: reserved for future work and forced to `false` by the runtime
 
-Environment-file values are intentionally minimal:
+Environment-file values are intentionally hidden from the Mainsail-editable config:
 
 - `KLIPPYAI_CONFIG_FILE`: points the service at `klippyai.cfg`
+- `KLIPPYAI_SERVICE_USER`: hidden install metadata for the service account
+- `KLIPPYAI_PROJECT_CHECKOUT_PATH`: hidden install metadata for the checkout path
+- `KLIPPYAI_NGINX_SERVER_BLOCK_PATH`: hidden install metadata for the patched nginx server block
+- `KLIPPYAI_HOST`: hidden local bind host, default `127.0.0.1`
+- `KLIPPYAI_MOONRAKER_URL`: hidden Moonraker base URL, usually `http://127.0.0.1:7125`
+- `KLIPPYAI_MANAGED_CONFIG_DIR_NAME`: hidden internal managed-config directory name
+- `KLIPPYAI_SESSION_TTL_SECONDS`: hidden UI session lifetime
+- `KLIPPYAI_MOONRAKER_SERVICE_NAME`, `KLIPPYAI_KLIPPER_SERVICE_NAME`: hidden systemd unit names for diagnostics
+- `KLIPPYAI_SYSTEM_STATUS_ARTIFACT_CHAR_LIMIT`, `KLIPPYAI_JOURNAL_ARTIFACT_CHAR_LIMIT`: hidden clip limits for captured diagnostics
+- `KLIPPYAI_SYSTEM_COMMAND_TIMEOUT_SECONDS`: hidden timeout for local diagnostics commands
 - `KLIPPYAI_OPENAI_API_KEY`: server-side API key for OpenAI
 
 See [deployment/config/klippyai.cfg.example](deployment/config/klippyai.cfg.example) and [.env.example](.env.example) for the current examples.

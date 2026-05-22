@@ -101,7 +101,7 @@ The installer will:
 
 - create a Python virtual environment in the repo
 - install the package into that venv
-- write `/etc/klippyai/klippyai.env`
+- write `/etc/klippyai/klippyai.env` for the config-file path, API key, and hidden install metadata
 - write `printer_data/config/klippyai.cfg`
 - detect the printer profile once and save it into `klippyai.cfg`
 - write `printer_data/config/klippyai-moonraker.cfg`
@@ -193,7 +193,7 @@ Optional Klipper update macro files:
 - `/usr/local/bin/klippyai-self-update`
 - `/etc/sudoers.d/klippyai-self-update`
 
-Server-side API key file:
+Server-side API key and hidden install metadata:
 
 - `/etc/klippyai/klippyai.env`
 
