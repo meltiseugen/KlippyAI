@@ -114,6 +114,13 @@ esac
 
 ROUTER_FILE="$OE_ROOT/moonraker_octoeverywhere/moonrakerapirouter.py"
 UI_FILE="$OE_ROOT/moonraker_octoeverywhere/static/oe-ui.js"
+ROUTER_TMP="$(mktemp)"
+UI_TMP="$(mktemp)"
+
+cleanup() {
+  rm -f "$ROUTER_TMP" "$UI_TMP"
+}
+trap cleanup EXIT
 
 if [ ! -f "$ROUTER_FILE" ]; then
   printf 'OctoEverywhere router file not found: %s\n' "$ROUTER_FILE" >&2
@@ -125,12 +132,10 @@ if [ ! -f "$UI_FILE" ]; then
   exit 1
 fi
 
-STAMP="$(date +%Y%m%d-%H%M%S)"
-cp "$ROUTER_FILE" "$ROUTER_FILE.klippyai-backup-$STAMP"
-cp "$UI_FILE" "$UI_FILE.klippyai-backup-$STAMP"
-
 OE_ROUTER_FILE="$ROUTER_FILE" \
 OE_UI_FILE="$UI_FILE" \
+OE_ROUTER_OUTPUT_FILE="$ROUTER_TMP" \
+OE_UI_OUTPUT_FILE="$UI_TMP" \
 KLIPPYAI_PREFIX="$KLIPPYAI_PREFIX" \
 KLIPPYAI_PORT="$KLIPPYAI_PORT" \
 NAV_TARGET="$NAV_TARGET" \
@@ -155,6 +160,8 @@ def replace_or_insert(text: str, start_marker: str, end_marker: str, block: str,
 
 router_file = Path(os.environ["OE_ROUTER_FILE"])
 ui_file = Path(os.environ["OE_UI_FILE"])
+router_output_file = Path(os.environ["OE_ROUTER_OUTPUT_FILE"])
+ui_output_file = Path(os.environ["OE_UI_OUTPUT_FILE"])
 klippyai_prefix = os.environ["KLIPPYAI_PREFIX"]
 klippyai_port = os.environ["KLIPPYAI_PORT"]
 nav_target = os.environ["NAV_TARGET"]
@@ -211,7 +218,7 @@ router_text = replace_or_insert(
     router_map_block,
     "            relativeUrlLower = relativeUrl.lower()\n",
 )
-router_file.write_text(router_text, encoding="utf-8")
+router_output_file.write_text(router_text, encoding="utf-8")
 
 ui_text = ui_file.read_text(encoding="utf-8")
 if nav_target == "_blank":
@@ -400,14 +407,47 @@ ui_text = replace_or_insert(
     ui_block,
     "    oe_detect_oe_loaded_index_and_inject_helpers();\n",
 )
-ui_file.write_text(ui_text, encoding="utf-8")
+ui_output_file.write_text(ui_text, encoding="utf-8")
 PY
+
+ROUTER_CHANGED=0
+UI_CHANGED=0
+if ! cmp -s "$ROUTER_FILE" "$ROUTER_TMP"; then
+  ROUTER_CHANGED=1
+fi
+if ! cmp -s "$UI_FILE" "$UI_TMP"; then
+  UI_CHANGED=1
+fi
+
+if [ "$ROUTER_CHANGED" -eq 0 ] && [ "$UI_CHANGED" -eq 0 ]; then
+  printf 'OctoEverywhere checkout already matches the KlippyAI patch: %s\n' "$OE_ROOT"
+  printf '  Router file: %s\n' "$ROUTER_FILE"
+  printf '  UI helper:   %s\n' "$UI_FILE"
+  printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPPYAI_PORT"
+  printf '  Nav target:  %s\n' "$NAV_TARGET"
+  if [ "$RESTART_SERVICE" -eq 1 ]; then
+    printf 'Skipped systemd restart because no OctoEverywhere files changed.\n'
+  fi
+  exit 0
+fi
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+if [ "$ROUTER_CHANGED" -eq 1 ]; then
+  cp "$ROUTER_FILE" "$ROUTER_FILE.klippyai-backup-$STAMP"
+  cat "$ROUTER_TMP" >"$ROUTER_FILE"
+fi
+if [ "$UI_CHANGED" -eq 1 ]; then
+  cp "$UI_FILE" "$UI_FILE.klippyai-backup-$STAMP"
+  cat "$UI_TMP" >"$UI_FILE"
+fi
 
 printf 'Patched OctoEverywhere checkout at %s\n' "$OE_ROOT"
 printf '  Router file: %s\n' "$ROUTER_FILE"
 printf '  UI helper:   %s\n' "$UI_FILE"
 printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPPYAI_PORT"
 printf '  Nav target:  %s\n' "$NAV_TARGET"
+printf '  Router edit: %s\n' "$( [ "$ROUTER_CHANGED" -eq 1 ] && printf changed || printf unchanged )"
+printf '  UI edit:     %s\n' "$( [ "$UI_CHANGED" -eq 1 ] && printf changed || printf unchanged )"
 
 if [ "$RESTART_SERVICE" -eq 1 ]; then
   run_root systemctl restart "$OE_SERVICE"

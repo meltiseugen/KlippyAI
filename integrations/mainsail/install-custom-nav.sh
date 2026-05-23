@@ -75,14 +75,15 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required."
 THEME_DIR="${CONFIG_DIR%/}/.theme"
 NAVI_FILE="${THEME_DIR}/navi.json"
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
+TMP_FILE="$(mktemp)"
+cleanup() {
+  rm -f "$TMP_FILE"
+}
+trap cleanup EXIT
 
 mkdir -p "$THEME_DIR"
 
-if [[ -f "$NAVI_FILE" ]]; then
-  cp "$NAVI_FILE" "${NAVI_FILE}.bak.${TIMESTAMP}"
-fi
-
-python3 - "$NAVI_FILE" "$TITLE" "$HREF" "$TARGET" "$POSITION" "$ICON" <<'PY'
+python3 - "$NAVI_FILE" "$TITLE" "$HREF" "$TARGET" "$POSITION" "$ICON" "$TMP_FILE" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -93,6 +94,7 @@ href = sys.argv[3]
 target = sys.argv[4]
 position = int(sys.argv[5])
 icon = sys.argv[6]
+output_file = Path(sys.argv[7])
 
 entry = {
     "title": title,
@@ -138,7 +140,19 @@ def sort_key(value):
     return (9999, str(value).lower())
 
 filtered.sort(key=sort_key)
-navi_file.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
+output_file.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
 PY
+
+if [[ -f "$NAVI_FILE" ]] && cmp -s "$TMP_FILE" "$NAVI_FILE"; then
+  printf '[KlippyAI] Navigation entry already up to date: %s\n' "$NAVI_FILE"
+  exit 0
+fi
+
+if [[ -f "$NAVI_FILE" ]]; then
+  cp "$NAVI_FILE" "${NAVI_FILE}.bak.${TIMESTAMP}"
+  cat "$TMP_FILE" >"$NAVI_FILE"
+else
+  install -m 644 "$TMP_FILE" "$NAVI_FILE"
+fi
 
 printf '[KlippyAI] Wrote %s\n' "$NAVI_FILE"

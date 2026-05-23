@@ -312,11 +312,13 @@ textarea {
 
 .messages {
   display: grid;
-  flex: 1 1 auto;
+  align-content: start;
   gap: 12px;
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: 6px;
+  overscroll-behavior: contain;
 }
 
 .history-list {
@@ -392,11 +394,13 @@ textarea {
 }
 
 .conversation-panel {
-  display: flex;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
-  flex-direction: column;
   gap: 16px;
+  overflow: hidden;
 }
 
 .message {
@@ -530,13 +534,15 @@ textarea {
 .composer-shell {
   display: grid;
   grid-template-columns: 1fr;
-  flex: 0 0 auto;
   gap: 16px;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)), var(--surface-elevated);
   box-shadow: var(--shadow);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 
 .composer-column {
