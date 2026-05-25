@@ -1,4 +1,25 @@
-#!/usr/bin/env bash
+#!/bin/sh
+
+if [ -z "${KLIPPYAI_INSTALL_BASH_REEXEC:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    KLIPPYAI_INSTALL_BASH_REEXEC=1
+    export KLIPPYAI_INSTALL_BASH_REEXEC
+    exec bash "$0" "$@"
+  fi
+
+  printf '%s\n' \
+    '[KlippyAI] error: this installer requires Bash, but bash was not found.' \
+    '[KlippyAI] install Bash on the printer host, then rerun:' \
+    '[KlippyAI]   chmod +x install.sh' \
+    '[KlippyAI]   ./install.sh' \
+    '[KlippyAI]' \
+    '[KlippyAI] Debian/Ubuntu example:' \
+    '[KlippyAI]   apt-get update && apt-get install -y bash' \
+    '[KlippyAI]' \
+    '[KlippyAI] BusyBox/OpenWrt-style images may not provide apt or systemd.' \
+    '[KlippyAI] This installer expects a normal Klipper host with Bash, Python 3.10+, systemd, and nginx.' >&2
+  exit 127
+fi
 
 set -euo pipefail
 

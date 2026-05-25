@@ -16,6 +16,7 @@ The host should already have:
 - Linux
 - Moonraker
 - Mainsail
+- `bash`
 - `systemd`
 - `nginx`
 - `git`
@@ -27,6 +28,20 @@ The installer can help install:
 - `python3-pip`
 
 KlippyAI requires Python `3.10+`. If `python3 --version` reports `3.9` or older, run [docs/python310-install.md](docs/python310-install.md) or `./deployment/python/install-python310.sh` first, then rerun the installer.
+
+If `bash install.sh` prints `bash: not found`, the host only has a smaller
+`sh` shell. Install Bash first, then rerun `./install.sh`. On Debian/Ubuntu
+hosts:
+
+```bash
+apt-get update
+apt-get install -y bash
+```
+
+Some rooted appliance images, including BusyBox/OpenWrt-style environments,
+may also be missing `systemd`, `nginx`, Python `venv`, or an `apt` package
+manager. The current installer targets normal Klipper host images that provide
+those services.
 
 You also need:
 

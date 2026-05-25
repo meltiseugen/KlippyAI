@@ -139,7 +139,9 @@ Planned provider support is tracked in [BACKLOG.md](BACKLOG.md).
 
 ### Recommended Path On A Klipper Host
 
-Clone the repository onto the Linux host that already runs Moonraker and Mainsail or Fluidd, then run:
+Clone the repository onto the Linux host that already runs Moonraker and Mainsail or Fluidd, and make sure the host has `bash`, `systemd`, `nginx`, `git`, and Python `3.10+`.
+
+Then run:
 
 ```bash
 chmod +x deployment/python/install-python310.sh
@@ -149,6 +151,10 @@ chmod +x install.sh
 ```
 
 Detailed host guidance for that helper lives in [docs/python310-install.md](docs/python310-install.md).
+
+If a rooted printer image only has BusyBox `sh`, `sh install.sh` will not work.
+Install Bash first, then rerun `./install.sh`; the current installer expects a
+normal Klipper host with Bash and systemd.
 
 To remove a host install later:
 
