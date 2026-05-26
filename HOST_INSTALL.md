@@ -96,6 +96,10 @@ rm -rf .venv
 ./install.sh
 ```
 
+Some rooted images have `systemctl` but do not pre-create
+`/etc/systemd/system`. The installer creates that directory before writing the
+`klippyai-agent.service` unit.
+
 You also need:
 
 - an OpenAI API key if you want live LLM responses

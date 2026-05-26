@@ -993,6 +993,8 @@ ensure_moonraker_allowed_service() {
 
 write_systemd_service() {
   local temp_file
+  local unit_dir="/etc/systemd/system"
+  local unit_path="$unit_dir/${SERVICE_NAME}.service"
   temp_file="$(mktemp)"
 
   cat >"$temp_file" <<EOF
@@ -1016,8 +1018,9 @@ PrivateTmp=yes
 WantedBy=multi-user.target
 EOF
 
-  backup_file "/etc/systemd/system/${SERVICE_NAME}.service"
-  run_root install -m 644 "$temp_file" "/etc/systemd/system/${SERVICE_NAME}.service"
+  run_root install -d -m 755 "$unit_dir"
+  backup_file "$unit_path"
+  run_root install -m 644 "$temp_file" "$unit_path"
   rm -f "$temp_file"
 }
 
