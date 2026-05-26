@@ -30,18 +30,49 @@ The installer can help install:
 KlippyAI requires Python `3.10+`. If `python3 --version` reports `3.9` or older, run [docs/python310-install.md](docs/python310-install.md) or `./deployment/python/install-python310.sh` first, then rerun the installer.
 
 If `bash install.sh` prints `bash: not found`, the host only has a smaller
-`sh` shell. Install Bash first, then rerun `./install.sh`. On Debian/Ubuntu
-hosts:
+`sh` shell. Install Bash first, then rerun `./install.sh`.
 
 ```bash
-apt-get update
-apt-get install -y bash
+apt-get update && apt-get install -y bash  # Debian/Ubuntu hosts
+opkg update && opkg install bash           # Entware/OpenWrt-style hosts
+apk add bash                               # Alpine hosts
 ```
 
 Some rooted appliance images, including BusyBox/OpenWrt-style environments,
-may also be missing `systemd`, `nginx`, Python `venv`, or an `apt` package
-manager. The current installer targets normal Klipper host images that provide
-those services.
+may also be missing `systemd`, `nginx`, Python `venv`, or a package manager.
+The current installer targets normal Klipper host images that provide those
+services. If the host has no `apt-get`, `opkg`, or `apk`, install Entware or use
+a normal Klipper host instead.
+
+On rooted Creality/Nebula-style images, first check what is actually available:
+
+```sh
+for command_name in bash apt-get opkg apk systemctl nginx python3 pip3 git; do
+  command -v "$command_name" >/dev/null 2>&1 && echo "$command_name: yes" || echo "$command_name: no"
+done
+python3 --version
+python3 -m venv --help >/dev/null 2>&1 && echo "python venv: yes" || echo "python venv: no"
+```
+
+If `systemctl` is `no`, the guided installer is not currently supported on that
+host even if Bash can be installed.
+
+If `opkg` is `yes`, `bash` is `no`, and `nginx` is `no`, install the missing
+shell and proxy packages first:
+
+```sh
+opkg update
+opkg install bash
+opkg install nginx-ssl || opkg install nginx
+```
+
+If Python is `3.10+` but `python venv` is `no`, the installer can now fall back
+to the Python `virtualenv` package. If prompted, let it install `virtualenv`
+with pip, or install it manually first:
+
+```sh
+python3 -m pip install --user virtualenv
+```
 
 You also need:
 

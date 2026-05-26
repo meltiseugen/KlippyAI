@@ -7,14 +7,24 @@ if [ -z "${KLIPPYAI_INSTALL_BASH_REEXEC:-}" ]; then
     exec bash "$0" "$@"
   fi
 
+  if command -v apt-get >/dev/null 2>&1; then
+    bash_install_hint='apt-get update && apt-get install -y bash'
+  elif command -v opkg >/dev/null 2>&1; then
+    bash_install_hint='opkg update && opkg install bash'
+  elif command -v apk >/dev/null 2>&1; then
+    bash_install_hint='apk add bash'
+  else
+    bash_install_hint='no supported package manager was found; install Bash manually or use a normal Klipper host'
+  fi
+
   printf '%s\n' \
     '[KlippyAI] error: this installer requires Bash, but bash was not found.' \
-    '[KlippyAI] install Bash on the printer host, then rerun:' \
+    '[KlippyAI] Install Bash on the printer host, then rerun:' \
     '[KlippyAI]   chmod +x install.sh' \
     '[KlippyAI]   ./install.sh' \
     '[KlippyAI]' \
-    '[KlippyAI] Debian/Ubuntu example:' \
-    '[KlippyAI]   apt-get update && apt-get install -y bash' \
+    '[KlippyAI] Suggested Bash install command for this host:' \
+    "[KlippyAI]   $bash_install_hint" \
     '[KlippyAI]' \
     '[KlippyAI] BusyBox/OpenWrt-style images may not provide apt or systemd.' \
     '[KlippyAI] This installer expects a normal Klipper host with Bash, Python 3.10+, systemd, and nginx.' >&2
@@ -29,6 +39,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 MIN_PYTHON_VERSION="3.10"
 PYTHON_BIN=""
+PYTHON_VENV_MODULE=""
 
 log() {
   printf '[%s] %s\n' "$PROJECT_NAME" "$*"
@@ -236,7 +247,13 @@ maybe_install_python_packages() {
 ensure_python_venv() {
   local venv_package=""
 
-  if "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+  if run_as_user "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+    PYTHON_VENV_MODULE="venv"
+    return
+  fi
+
+  if run_as_user "$PYTHON_BIN" -m virtualenv --help >/dev/null 2>&1; then
+    PYTHON_VENV_MODULE="virtualenv"
     return
   fi
 
@@ -245,13 +262,38 @@ ensure_python_venv() {
     if confirm "Python venv support is missing for $PYTHON_BIN. Install $venv_package with apt?" "Y"; then
       run_root apt-get update
       run_root apt-get install -y "$venv_package"
-      if "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+      if run_as_user "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+        PYTHON_VENV_MODULE="venv"
         return
       fi
     fi
   fi
 
-  die "Python venv support is required for $PYTHON_BIN."
+  if run_as_user "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+    if confirm "Python venv support is missing for $PYTHON_BIN. Install virtualenv with pip and use that to create .venv?" "Y"; then
+      run_as_user "$PYTHON_BIN" -m pip install --user virtualenv
+      if run_as_user "$PYTHON_BIN" -m virtualenv --help >/dev/null 2>&1; then
+        PYTHON_VENV_MODULE="virtualenv"
+        return
+      fi
+    fi
+  fi
+
+  die "Python venv support is required for $PYTHON_BIN. Install the distro venv package, or install virtualenv with: $PYTHON_BIN -m pip install --user virtualenv"
+}
+
+create_python_virtual_environment() {
+  case "$PYTHON_VENV_MODULE" in
+    venv)
+      run_as_user "$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"
+      ;;
+    virtualenv)
+      run_as_user "$PYTHON_BIN" -m virtualenv "$INSTALL_DIR/.venv"
+      ;;
+    *)
+      die "No Python virtual environment creator was selected."
+      ;;
+  esac
 }
 
 file_has_trimmed_line() {
@@ -339,11 +381,60 @@ detect_default_install_user() {
 }
 
 home_for_user() {
-  getent passwd "$1" | cut -d: -f6
+  local user="$1"
+  if command -v getent >/dev/null 2>&1; then
+    getent passwd "$user" | awk -F: '{ print $6; exit }'
+    return
+  fi
+
+  awk -F: -v user="$user" '
+    $1 == user {
+      print $6
+      found = 1
+      exit
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' /etc/passwd
 }
 
 group_for_user() {
-  id -gn "$1"
+  local user="$1"
+  local gid=""
+
+  if id -gn "$user" >/dev/null 2>&1; then
+    id -gn "$user"
+    return
+  fi
+
+  if command -v getent >/dev/null 2>&1; then
+    gid="$(getent passwd "$user" | awk -F: '{ print $4; exit }')" || return 1
+    getent group "$gid" | awk -F: '{ print $1; exit }' || printf '%s' "$gid"
+    return
+  fi
+
+  gid="$(awk -F: -v user="$user" '
+    $1 == user {
+      print $4
+      found = 1
+      exit
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' /etc/passwd)" || return 1
+
+  awk -F: -v gid="$gid" '
+    $3 == gid {
+      print $1
+      found = 1
+      exit
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' /etc/group 2>/dev/null || printf '%s' "$gid"
 }
 
 detect_moonraker_config_path() {
@@ -1185,7 +1276,6 @@ EOF
 main() {
   require_linux
   require_cmd awk
-  require_cmd getent
   require_cmd find
   require_cmd git
   require_cmd grep
@@ -1348,7 +1438,7 @@ main() {
     fi
   fi
   if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
-    run_as_user "$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"
+    create_python_virtual_environment
   fi
 
   log "Installing Python package into the virtual environment."

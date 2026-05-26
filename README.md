@@ -154,7 +154,10 @@ Detailed host guidance for that helper lives in [docs/python310-install.md](docs
 
 If a rooted printer image only has BusyBox `sh`, `sh install.sh` will not work.
 Install Bash first, then rerun `./install.sh`; the current installer expects a
-normal Klipper host with Bash and systemd.
+normal Klipper host with Bash and systemd. If the image has no `apt-get`, check
+for `opkg`/Entware or use a normal Klipper host instead. If Python `venv`
+support is absent but `pip` works, the installer can fall back to
+`python3 -m virtualenv`.
 
 To remove a host install later:
 
@@ -195,7 +198,7 @@ The installer currently guides the user through:
 - when `gcode_shell_command` is detected, optionally generating an `UPDATE_KLIPPYAI` macro that pulls the repo and restarts `klippyai-agent`
 - when OctoEverywhere is detected, optionally applying the local OE `/klippyai/` route patch automatically
 
-KlippyAI requires Python `3.10+`. The installer now checks that explicitly and recreates an older `.venv` if a previous attempt bootstrapped one with Python `3.9` or older. For Bullseye-era printer images such as BIGTREETECH CB1, use [deployment/python/install-python310.sh](deployment/python/install-python310.sh) or follow [docs/python310-install.md](docs/python310-install.md) before rerunning `./install.sh`.
+KlippyAI requires Python `3.10+`. The installer now checks that explicitly and recreates an older `.venv` if a previous attempt bootstrapped one with Python `3.9` or older. For Bullseye-era printer images such as BIGTREETECH CB1, use [deployment/python/install-python310.sh](deployment/python/install-python310.sh) or follow [docs/python310-install.md](docs/python310-install.md) before rerunning `./install.sh`. On embedded images where `python3 -m venv` is unavailable, the installer can use `virtualenv` from pip instead.
 
 The installer always asks for the service user first. Path defaults are then derived from that user, so a `biqu` host will naturally default to `/home/biqu/...` instead of `/home/pi/...`.
 
