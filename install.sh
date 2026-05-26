@@ -444,6 +444,7 @@ detect_moonraker_config_path() {
 
   for candidate in \
     "$config_dir/moonraker.conf" \
+    /usr/data/printer_data/config/moonraker.conf \
     "$home_dir/printer_data/config/moonraker.conf" \
     "$home_dir/moonraker.conf"
   do
@@ -460,6 +461,10 @@ detect_nginx_server_block_path() {
   local candidate=""
 
   for candidate in \
+    /usr/data/nginx/conf.d/mainsail.conf \
+    /usr/data/nginx/conf.d/default.conf \
+    /usr/data/nginx/nginx.conf \
+    /usr/data/nginx/conf/nginx.conf \
     /etc/nginx/conf.d/mainsail.conf \
     /etc/nginx/sites-enabled/mainsail \
     /etc/nginx/sites-available/mainsail
@@ -470,6 +475,19 @@ detect_nginx_server_block_path() {
     fi
   done
 
+  candidate="$(
+    find /usr/data/nginx -maxdepth 3 -type f \
+      \( -name '*.conf' -o -name 'nginx.conf' \) \
+      -exec grep -l '^[[:space:]]*server[[:space:]]*{' {} \; 2>/dev/null \
+      | sort \
+      | head -n1 \
+      || true
+  )"
+  if [[ -n "$candidate" ]]; then
+    printf '%s' "$candidate"
+    return
+  fi
+
   printf '%s' "/etc/nginx/conf.d/mainsail.conf"
 }
 
@@ -478,6 +496,10 @@ detect_printer_data_root() {
   local candidate=""
 
   for candidate in \
+    /usr/data/printer_data \
+    /usr/data/printer_1_data \
+    /usr/data/printer_2_data \
+    /usr/data/printer_3_data \
     "$home_dir/printer_data" \
     "$home_dir/printer_1_data" \
     "$home_dir/printer_2_data" \

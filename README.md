@@ -157,7 +157,8 @@ Install Bash first, then rerun `./install.sh`; the current installer expects a
 normal Klipper host with Bash and systemd. If the image has no `apt-get`, check
 for `opkg`/Entware or use a normal Klipper host instead. If Python `venv`
 support is absent but `pip` works, the installer can fall back to
-`python3 -m virtualenv`.
+`python3 -m virtualenv`. On rooted Creality Nebula Pad-style layouts, the
+installer detects `/usr/data/printer_data` as the printer data root.
 
 To remove a host install later:
 
@@ -336,14 +337,14 @@ The main `klippyai.cfg` values are:
 - `addons`: installer-detected addon list
 - `root_config_file`: under `[config_context]`, the detected active root config file, overrideable when your root file is not the standard `printer.cfg`
 - `ignore_globs`: under `[config_context]`, optional ignore patterns for KlippyAI context collection, such as backups or archived config directories
-- `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data`
-- `mainsail_config_dir`: Mainsail-editable config directory, usually `/home/<service-user>/printer_data/config`
+- `printer_data_root`: printer data directory, usually `/home/<service-user>/printer_data` or `/usr/data/printer_data` on rooted Creality/Nebula-style images
+- `mainsail_config_dir`: Mainsail-editable config directory, usually `/home/<service-user>/printer_data/config` or `/usr/data/printer_data/config`
 - `root_path`: public reverse-proxy path, usually `/klippyai`
 - `port`: local KlippyAI bind port, default `8811`
 - `data_dir`: local KlippyAI data directory
 - `llm_provider`: currently `stub` or `openai`
 - `openai_model`: default OpenAI model name, editable in `klippyai.cfg`
-- `logs_dir_path`: host log directory path, usually `/home/<service-user>/printer_data/logs`
+- `logs_dir_path`: host log directory path, usually `/home/<service-user>/printer_data/logs` or `/usr/data/printer_data/logs`
 - `agent_log_file_name`, `agent_log_level`: control the KlippyAI runtime log file name and level
 - `log_tail_lines_default`: default number of lines to include from each current host log file
 - `[log_tail_lines]`: per-log overrides keyed by log stem, for example `klippy = 100` and `moonraker = 200`

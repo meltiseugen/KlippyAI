@@ -54,6 +54,16 @@ python3 --version
 python3 -m venv --help >/dev/null 2>&1 && echo "python venv: yes" || echo "python venv: no"
 ```
 
+On rooted Creality Nebula Pad-style layouts, the printer data root is usually:
+
+- printer data root: `/usr/data/printer_data`
+- Mainsail config dir: `/usr/data/printer_data/config`
+- related host data: `/usr/data/mainsail`, `/usr/data/moonraker`, `/usr/data/nginx`
+
+The installer detects `/usr/data/printer_data` automatically when it exists. If
+you are prompted for the printer data root on one of these pads, use
+`/usr/data/printer_data`.
+
 If `systemctl` is `no`, the guided installer is not currently supported on that
 host even if Bash can be installed.
 
