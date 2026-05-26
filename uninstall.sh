@@ -8,6 +8,11 @@ TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 ENV_FILE="/etc/klippyai/klippyai.env"
 SYSTEMD_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 NGINX_SNIPPET_PATH="/etc/klippyai/nginx-location.conf"
+OE_REAPPLY_RUNNER_PATH="/usr/local/bin/klippyai-octoeverywhere-reapply"
+OE_REAPPLY_SERVICE_NAME="klippyai-octoeverywhere-reapply.service"
+OE_REAPPLY_TIMER_NAME="klippyai-octoeverywhere-reapply.timer"
+OE_REAPPLY_SERVICE_PATH="/etc/systemd/system/${OE_REAPPLY_SERVICE_NAME}"
+OE_REAPPLY_TIMER_PATH="/etc/systemd/system/${OE_REAPPLY_TIMER_NAME}"
 
 log() {
   printf '[%s] %s\n' "$PROJECT_NAME" "$*"
@@ -66,7 +71,12 @@ require_cmd() {
 }
 
 home_for_user() {
-  getent passwd "$1" | cut -d: -f6
+  if command -v getent >/dev/null 2>&1; then
+    getent passwd "$1" | cut -d: -f6
+    return
+  fi
+
+  awk -F: -v target="$1" '$1 == target { print $6; exit }' /etc/passwd
 }
 
 run_root() {
@@ -337,6 +347,7 @@ Remove data dir:       $REMOVE_DATA_DIR
 Remove nginx snippet:  $REMOVE_NGINX_SNIPPET
 Remove checkout dir:   $REMOVE_CHECKOUT_DIR
 Remove update macro:   $REMOVE_UPDATE_MACRO_INTEGRATION
+Remove OE auto-reapply: $REMOVE_OE_REAPPLY_INTEGRATION
 
 EOF
 }
@@ -344,7 +355,6 @@ EOF
 main() {
   require_linux
   require_cmd awk
-  require_cmd getent
   require_cmd grep
   require_cmd install
   require_cmd python3
@@ -480,6 +490,16 @@ main() {
     REMOVE_UPDATE_MACRO_INTEGRATION="no"
   fi
 
+  if [[ -f "$OE_REAPPLY_RUNNER_PATH" || -f "$OE_REAPPLY_SERVICE_PATH" || -f "$OE_REAPPLY_TIMER_PATH" ]]; then
+    if confirm "Remove the OctoEverywhere patch auto-reapply timer?" "Y"; then
+      REMOVE_OE_REAPPLY_INTEGRATION="yes"
+    else
+      REMOVE_OE_REAPPLY_INTEGRATION="no"
+    fi
+  else
+    REMOVE_OE_REAPPLY_INTEGRATION="no"
+  fi
+
   print_summary
   confirm "Proceed with uninstall?" "N" || die "Uninstall cancelled."
 
@@ -490,6 +510,16 @@ main() {
 
   remove_file_if_present "$SYSTEMD_UNIT_PATH"
   run_root systemctl daemon-reload
+
+  if [[ "$REMOVE_OE_REAPPLY_INTEGRATION" == "yes" ]]; then
+    log "Stopping and disabling ${OE_REAPPLY_TIMER_NAME}."
+    run_root systemctl disable --now "$OE_REAPPLY_TIMER_NAME" || warn "Could not fully disable ${OE_REAPPLY_TIMER_NAME}."
+    run_root systemctl disable --now "$OE_REAPPLY_SERVICE_NAME" || true
+    remove_file_if_present "$OE_REAPPLY_TIMER_PATH"
+    remove_file_if_present "$OE_REAPPLY_SERVICE_PATH"
+    remove_file_if_present "$OE_REAPPLY_RUNNER_PATH"
+    run_root systemctl daemon-reload
+  fi
 
   if [[ "$REMOVE_MAINSAIL_NAV" == "yes" ]] && [[ -d "$KLIPPYAI_MAINSAIL_CONFIG_DIR" ]]; then
     if command -v python3 >/dev/null 2>&1 && [[ -f "$KLIPPYAI_PROJECT_CHECKOUT_PATH/integrations/mainsail/uninstall-custom-nav.sh" ]]; then
@@ -562,6 +592,7 @@ Removed:
 - Moonraker include entry and allowed-services entry
 - KlippyAI environment file
 - optional UPDATE_KLIPPYAI macro artifacts when selected
+- optional OctoEverywhere auto-reapply artifacts when selected
 
 Manual follow-up:
 1. Restart Moonraker:

@@ -154,6 +154,13 @@ def test_config_collector_tracks_section_locations_in_active_include_tree(tmp_pa
     assert matches[0].line_number == 1
 
 
+def test_config_request_detects_section_content_followup() -> None:
+    target = infer_config_request_target("can you give me the extruder section here?")
+
+    assert target.feature == "extruder"
+    assert target.intent == "locate"
+
+
 def test_config_collector_includes_all_files_from_active_include_tree(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"
     extras_dir = config_dir / "extras"

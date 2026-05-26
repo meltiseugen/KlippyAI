@@ -215,8 +215,13 @@ After installation, the recommended `v1` flow is:
 Important limitations:
 
 - the optional native Mainsail shell exists as a source patch bundle, but the installer does not apply or build Mainsail automatically
-- the optional `UPDATE_KLIPPYAI` macro depends on `gcode_shell_command` support and writes a narrow sudoers rule for its helper script
+- the optional `UPDATE_KLIPPYAI` macro depends on `gcode_shell_command` support; it runs directly when Klipper runs as root, otherwise it writes a narrow sudoers rule for its helper script
 - Moonraker update-manager controls work best after the repo has semantic-version tags such as `v0.1.0`
+
+The update macro can also be installed after the main install with
+`integrations/klipper/install-update-macro.sh`. If `gcode_shell_command.py` is
+missing but a Klipper/Kalico checkout is present, the installer can offer to
+download the KIAUH extension asset and install it first.
 
 ### Recommended Mainsail Integration
 
@@ -272,10 +277,13 @@ adds a `/klippyai/... -> 127.0.0.1:8811/...` route inside OctoEverywhere's
 Moonraker-side router and overrides the `KlippyAI` sidebar click behavior when
 loaded via `*.octoeverywhere.com`, with support for opening KlippyAI in a new
 tab. If the installer detects an OctoEverywhere checkout, it can offer to apply
-this patch automatically.
+this patch automatically. On rooted Creality Nebula Pad-style layouts, the
+OctoEverywhere checkout is commonly `/usr/data/octoeverywhere`.
 
 Use it only if you are comfortable carrying a local OctoEverywhere patch across
-future OE updates.
+future OE updates. The integration folder also includes an optional systemd
+timer installer that can reapply the patch automatically after OE updates replace
+the patched files.
 
 ### Manual Development Install
 

@@ -59,6 +59,7 @@ On rooted Creality Nebula Pad-style layouts, the printer data root is usually:
 - printer data root: `/usr/data/printer_data`
 - Mainsail config dir: `/usr/data/printer_data/config`
 - related host data: `/usr/data/mainsail`, `/usr/data/moonraker`, `/usr/data/nginx`
+- OctoEverywhere checkout, when installed: `/usr/data/octoeverywhere`
 
 The installer detects `/usr/data/printer_data` automatically when it exists. If
 you are prompted for the printer data root on one of these pads, use
@@ -199,9 +200,15 @@ include /etc/klippyai/nginx-location.conf;
 
 Common file locations:
 
+- `/usr/data/nginx/nginx.conf`
 - `/etc/nginx/conf.d/mainsail.conf`
 - `/etc/nginx/sites-enabled/mainsail`
 - `/etc/nginx/sites-available/mainsail`
+
+Some Creality nginx configs contain separate Fluidd and Mainsail `server`
+blocks in one file. In that layout, make sure the include is inside the
+Mainsail server block too, usually the one with `listen 80` and
+`root /usr/data/mainsail`.
 
 Then reload nginx:
 
@@ -252,6 +259,23 @@ Optional OctoEverywhere path:
   and apply the local OE host patch from this repo
 - if the installer detects an OctoEverywhere checkout, it can offer to apply
   that patch for you during install
+- on rooted Creality Nebula Pad-style layouts, the OctoEverywhere checkout is
+  often `/usr/data/octoeverywhere`; pass that as `--oe-root` if applying the
+  patch manually
+- if you choose the OctoEverywhere patch in the installer, it can also install
+  a small systemd timer that reapplies the patch after future OE updates replace
+  the patched files
+
+Manual auto-reapply timer install:
+
+```bash
+sh integrations/octoeverywhere/install-auto-reapply.sh \
+  --oe-root /usr/data/octoeverywhere \
+  --klippyai-prefix /klippyai \
+  --klippyai-port 8811 \
+  --nav-target _blank \
+  --service octoeverywhere
+```
 
 ## 8. Important Files
 
@@ -327,7 +351,46 @@ You can also manually edit these sections in `klippyai.cfg`:
 
 If this host still has an older `[printer_geometry]` section in `klippyai.cfg`, remove that section before restarting `klippyai-agent`.
 
-## 11. Runtime Behavior
+## 11. Optional UPDATE_KLIPPYAI Macro
+
+The installer offers this macro when it detects Klipper/Kalico
+`gcode_shell_command` support. If it finds a Klipper/Kalico checkout but the
+extension is missing, it can offer to install `gcode_shell_command.py` from the
+KIAUH extension asset first, then install the macro. This is opt-in because it
+allows Klipper macros to run host shell commands.
+
+On rooted Creality images, that support may live outside the service user's
+home, so check it directly:
+
+```bash
+find /usr/data /root /opt /usr/local /usr/share -maxdepth 6 \
+  -type f -path '*/klippy/extras/gcode_shell_command.py' 2>/dev/null
+```
+
+If the macro is installed, it writes:
+
+- `/usr/local/bin/klippyai-self-update`
+- `/usr/data/printer_data/config/klippyai/klippyai-macros.cfg`
+- an include in `/usr/data/printer_data/config/printer.cfg`
+- `/etc/sudoers.d/klippyai-self-update` only when Klipper does not run as root
+
+When Klipper runs as root, the macro calls `/usr/local/bin/klippyai-self-update`
+directly and does not require `sudo`.
+
+Manual install on a rooted Nebula Pad:
+
+```bash
+cd /root/KlippyAI
+sh integrations/klipper/install-update-macro.sh \
+  --install-dir /root/KlippyAI \
+  --install-user root \
+  --config-dir /usr/data/printer_data/config \
+  --root-config /usr/data/printer_data/config/printer.cfg \
+  --install-gcode-shell-command \
+  --restart-klipper
+```
+
+## 12. Runtime Behavior
 
 KlippyAI currently:
 
@@ -345,7 +408,7 @@ KlippyAI currently does **not**:
 - patch `printer.cfg`
 - apply config proposals automatically
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 If the service does not start:
 
@@ -377,7 +440,20 @@ Check nginx:
 sudo nginx -t
 ```
 
-## 13. Uninstall
+If clicking the Mainsail `KlippyAI` button opens a blank Mainsail page, check
+whether `/klippyai/` is falling through to Mainsail instead of KlippyAI:
+
+```bash
+curl http://127.0.0.1:8811/healthz
+curl http://127.0.0.1/klippyai/healthz
+grep -R "klippyai\|nginx-location" /usr/data/nginx /etc/nginx 2>/dev/null
+```
+
+The first two commands should return JSON. If `/klippyai/healthz` returns
+Mainsail HTML, add `include /etc/klippyai/nginx-location.conf;` inside the
+active Mainsail nginx `server` block, then reload nginx.
+
+## 14. Uninstall
 
 To remove KlippyAI:
 

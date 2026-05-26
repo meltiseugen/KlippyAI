@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
-from pydantic import Field
+from pydantic import Field, validator
 
 from klippyai_agent.diagnostics import DiagnosticsSnapshot
 from klippyai_agent.model_compat import BaseModel
@@ -21,12 +21,38 @@ class DiagnosisLLMOutput(BaseModel):
     recommended_actions: list[str] = Field(default_factory=list)
     follow_up_questions: list[str] = Field(default_factory=list)
 
+    @validator("summary", pre=True)
+    def _normalize_summary(cls, value: Any) -> str:
+        return _stringify_llm_item(value) or "No diagnosis was returned."
+
+    @validator("likely_causes", "recommended_actions", "follow_up_questions", pre=True)
+    def _normalize_string_list(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
 
 class ConfigAssistantOutput(BaseModel):
     summary: str
     proposals: list[ConfigProposal] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     follow_up_questions: list[str] = Field(default_factory=list)
+
+    @validator("summary", pre=True)
+    def _normalize_summary(cls, value: Any) -> str:
+        return _stringify_llm_item(value) or "No config proposal was returned."
+
+    @validator("next_actions", "follow_up_questions", pre=True)
+    def _normalize_string_list(cls, value: Any) -> list[str]:
+        return _coerce_string_list(value)
+
+    @validator("proposals", pre=True)
+    def _normalize_proposals(cls, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, list):
+            return value
+        return []
 
 
 @dataclass(slots=True)
@@ -646,6 +672,50 @@ def _with_required_summary(data: dict[str, Any], fallback: str) -> dict[str, Any
     if not str(data.get("summary", "")).strip():
         data = {**data, "summary": fallback}
     return data
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if not isinstance(value, (list, tuple)):
+        text = _stringify_llm_item(value)
+        return [text] if text else []
+
+    items: list[str] = []
+    for item in value:
+        text = _stringify_llm_item(item)
+        if text:
+            items.append(text)
+    return items
+
+
+def _stringify_llm_item(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("summary", "text", "message", "cause", "action", "question", "description", "value"):
+            nested = value.get(key)
+            text = _stringify_llm_item(nested)
+            if text:
+                return text
+        scalar_parts = [
+            f"{key}: {nested}"
+            for key, nested in value.items()
+            if isinstance(nested, (str, int, float, bool)) and str(nested).strip()
+        ]
+        if scalar_parts:
+            return "; ".join(scalar_parts)
+        try:
+            return json.dumps(value, sort_keys=True)
+        except TypeError:
+            return str(value)
+    if isinstance(value, (list, tuple)):
+        return "; ".join(item for item in (_stringify_llm_item(item) for item in value) if item)
+    return str(value).strip()
 
 
 def build_diagnosis_provider(settings: Settings) -> DiagnosisProvider:

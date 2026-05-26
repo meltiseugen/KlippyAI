@@ -20,11 +20,14 @@ What it does not do:
 
 - it does not patch Mainsail itself
 - it does not add a second officially supported frontend to OctoEverywhere
-- it does not survive OctoEverywhere source updates automatically
+- it does not change OctoEverywhere's update process; use the optional
+  auto-reapply timer below if you want KlippyAI to repair the patch after OE
+  updates
 
 ## Assumptions
 
 - OctoEverywhere checkout path: `/home/<service-user>/octoeverywhere`
+  or, on rooted Creality Nebula Pad-style layouts, `/usr/data/octoeverywhere`
 - KlippyAI backend port: `8811`
 - KlippyAI public prefix: `/klippyai`
 
@@ -44,6 +47,14 @@ chmod +x integrations/octoeverywhere/apply-local-klippyai-route-patch.sh
   --restart-service
 ```
 
+Rooted Creality Nebula Pad example:
+
+```bash
+./integrations/octoeverywhere/apply-local-klippyai-route-patch.sh \
+  --oe-root /usr/data/octoeverywhere \
+  --restart-service
+```
+
 Optional flags:
 
 - `--klippyai-prefix /klippyai`
@@ -52,6 +63,27 @@ Optional flags:
 - `--service octoeverywhere`
 
 The script writes timestamped backups next to the patched OctoEverywhere files.
+
+## Auto-Reapply After Updates
+
+OctoEverywhere updates can replace the patched files. To install a small
+systemd timer that checks the patch markers every 30 minutes and reapplies the
+patch only when it is missing:
+
+```bash
+sh integrations/octoeverywhere/install-auto-reapply.sh \
+  --oe-root /usr/data/octoeverywhere \
+  --klippyai-prefix /klippyai \
+  --klippyai-port 8811 \
+  --nav-target _blank \
+  --service octoeverywhere
+```
+
+Installed artifacts:
+
+- `/usr/local/bin/klippyai-octoeverywhere-reapply`
+- `/etc/systemd/system/klippyai-octoeverywhere-reapply.service`
+- `/etc/systemd/system/klippyai-octoeverywhere-reapply.timer`
 
 ## Verify
 

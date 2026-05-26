@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, validator
 from klippyai_agent.model_compat import BaseModel
 from klippyai_agent.printerconfig import ConfigFeature
 
@@ -53,6 +54,29 @@ class ConfigProposal(BaseModel):
     rationale: str
     assumptions: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+    @validator("assumptions", "warnings", pre=True)
+    def _normalize_string_list(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        if not isinstance(value, (list, tuple)):
+            value = [value]
+
+        normalized: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                text = item.strip()
+            elif isinstance(item, dict):
+                text = _stringify_dict(item)
+            else:
+                text = str(item).strip()
+            if text:
+                normalized.append(text)
+        return normalized
 
 
 class DetectedAddonSummary(BaseModel):
@@ -115,3 +139,16 @@ class UiSessionResponse(BaseModel):
     session_id: str
     embed_path: str
     expires_at: datetime
+
+
+def _stringify_dict(value: dict[Any, Any]) -> str:
+    for key in ("summary", "text", "message", "description", "value"):
+        nested = value.get(key)
+        if nested is not None:
+            text = str(nested).strip()
+            if text:
+                return text
+    try:
+        return json.dumps(value, sort_keys=True)
+    except TypeError:
+        return str(value)

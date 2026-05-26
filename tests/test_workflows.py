@@ -123,6 +123,60 @@ def test_resolve_config_lookup_returns_exact_match_without_llm() -> None:
     assert "fan_generic nevermore" not in result["response_text"]
 
 
+def test_resolve_config_lookup_can_return_section_body_without_llm() -> None:
+    target = infer_config_request_target("Can you give me the extruder section here?")
+    snapshot = ConfigSnapshot.from_state(
+        {
+            "root_file": "/home/pi/printer_data/config/printer.cfg",
+            "documents": [
+                {
+                    "path": "/home/pi/printer_data/config/printer.cfg",
+                    "sections": ["extruder", "heater_bed"],
+                    "content": (
+                        "[extruder]\n"
+                        "step_pin: PA1\n"
+                        "rotation_distance: 7.5\n\n"
+                        "[heater_bed]\n"
+                        "heater_pin: PB1\n"
+                    ),
+                }
+            ],
+            "notes": [],
+            "section_locations": [
+                {
+                    "path": "/home/pi/printer_data/config/printer.cfg",
+                    "line_number": 1,
+                    "section": "extruder",
+                },
+                {
+                    "path": "/home/pi/printer_data/config/printer.cfg",
+                    "line_number": 5,
+                    "section": "heater_bed",
+                },
+            ],
+        }
+    )
+
+    result = resolve_config_lookup(
+        {
+            "user_message": "Can you give me the extruder section here?",
+            "feature_target": {
+                "feature": target.feature,
+                "rationale": target.rationale,
+                "intent": target.intent,
+                "section_name": target.section_name,
+            },
+            "config_snapshot": snapshot.to_state(),
+        }
+    )
+
+    assert target.intent == "locate"
+    assert "```ini" in result["response_text"]
+    assert "[extruder]" in result["response_text"]
+    assert "rotation_distance: 7.5" in result["response_text"]
+    assert "[heater_bed]" not in result["response_text"]
+
+
 @pytest.mark.asyncio
 async def test_collect_config_context_includes_automatic_host_logs(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"

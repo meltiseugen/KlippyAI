@@ -40,6 +40,7 @@ TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 MIN_PYTHON_VERSION="3.10"
 PYTHON_BIN=""
 PYTHON_VENV_MODULE=""
+GCODE_SHELL_COMMAND_URL="https://raw.githubusercontent.com/dw-0/kiauh/master/kiauh/extensions/gcode_shell_cmd/assets/gcode_shell_command.py"
 
 log() {
   printf '[%s] %s\n' "$PROJECT_NAME" "$*"
@@ -590,13 +591,13 @@ extract_update_manager_path() {
   expand_user_path "$raw_value" "$home_dir"
 }
 
-detect_gcode_shell_command_checkout() {
+detect_klipper_checkout() {
   local moonraker_config_path="$1"
   local home_dir="$2"
   local candidate=""
 
   candidate="$(extract_update_manager_path "$moonraker_config_path" "$home_dir" "klipper|kalico" || true)"
-  if [[ -n "$candidate" ]] && [[ -f "$candidate/klippy/extras/gcode_shell_command.py" ]]; then
+  if [[ -n "$candidate" ]] && [[ -d "$candidate/klippy/extras" ]]; then
     printf '%s' "$candidate"
     return
   fi
@@ -605,17 +606,42 @@ detect_gcode_shell_command_checkout() {
     "$home_dir/kalico" \
     "$home_dir/Kalico" \
     "$home_dir/klipper" \
-    "$home_dir/Klipper"
+    "$home_dir/Klipper" \
+    "/usr/data/kalico" \
+    "/usr/data/Kalico" \
+    "/usr/data/klipper" \
+    "/usr/data/Klipper" \
+    "/opt/kalico" \
+    "/opt/klipper" \
+    "/usr/local/kalico" \
+    "/usr/local/klipper" \
+    "/usr/share/klipper"
   do
-    if [[ -f "$candidate/klippy/extras/gcode_shell_command.py" ]]; then
+    if [[ -d "$candidate/klippy/extras" ]]; then
       printf '%s' "$candidate"
       return
     fi
   done
 
-  candidate="$(find "$home_dir" -maxdepth 3 -type f -path '*/klippy/extras/gcode_shell_command.py' 2>/dev/null | sort | head -n1 || true)"
+  candidate="$(
+    {
+      find "$home_dir" -maxdepth 4 -type d -path '*/klippy/extras' 2>/dev/null
+      find /usr/data /opt /usr/local /usr/share -maxdepth 5 -type d -path '*/klippy/extras' 2>/dev/null
+    } | sort | head -n1 || true
+  )"
   if [[ -n "$candidate" ]]; then
-    printf '%s' "${candidate%/klippy/extras/gcode_shell_command.py}"
+    printf '%s' "${candidate%/klippy/extras}"
+  fi
+}
+
+detect_gcode_shell_command_checkout() {
+  local moonraker_config_path="$1"
+  local home_dir="$2"
+  local candidate=""
+
+  candidate="$(detect_klipper_checkout "$moonraker_config_path" "$home_dir" || true)"
+  if [[ -n "$candidate" ]] && [[ -f "$candidate/klippy/extras/gcode_shell_command.py" ]]; then
+    printf '%s' "$candidate"
   fi
 }
 
@@ -625,7 +651,9 @@ detect_octoeverywhere_root() {
 
   for candidate in \
     "$home_dir/octoeverywhere" \
-    "$home_dir/OctoEverywhere"
+    "$home_dir/OctoEverywhere" \
+    "/usr/data/octoeverywhere" \
+    "/usr/data/OctoEverywhere"
   do
     if [[ -f "$candidate/moonraker_octoeverywhere/static/oe-ui.js" ]]; then
       printf '%s' "$candidate"
@@ -633,7 +661,12 @@ detect_octoeverywhere_root() {
     fi
   done
 
-  candidate="$(find "$home_dir" -maxdepth 3 -type f -path '*/moonraker_octoeverywhere/static/oe-ui.js' 2>/dev/null | sort | head -n1 || true)"
+  candidate="$(
+    {
+      find "$home_dir" -maxdepth 3 -type f -path '*/moonraker_octoeverywhere/static/oe-ui.js' 2>/dev/null
+      find /usr/data -maxdepth 3 -type f -path '*/moonraker_octoeverywhere/static/oe-ui.js' 2>/dev/null
+    } | sort | head -n1 || true
+  )"
   if [[ -n "$candidate" ]]; then
     printf '%s' "${candidate%/moonraker_octoeverywhere/static/oe-ui.js}"
   fi
@@ -1043,6 +1076,51 @@ EOF
   rm -f "$temp_file"
 }
 
+download_gcode_shell_command() {
+  local output_path="$1"
+
+  python3 - "$GCODE_SHELL_COMMAND_URL" "$output_path" <<'PY'
+import sys
+import urllib.request
+
+url = sys.argv[1]
+output_path = sys.argv[2]
+request = urllib.request.Request(url, headers={"User-Agent": "KlippyAI installer"})
+with urllib.request.urlopen(request, timeout=30) as response:
+    data = response.read()
+text = data.decode("utf-8")
+if "RUN_SHELL_COMMAND" not in text or "def load_config_prefix" not in text:
+    raise SystemExit("downloaded file does not look like gcode_shell_command.py")
+with open(output_path, "w", encoding="utf-8", newline="\n") as fh:
+    fh.write(text)
+PY
+}
+
+install_gcode_shell_command_support() {
+  [[ -n "${KLIPPYAI_KLIPPER_CHECKOUT:-}" ]] || die "Klipper/Kalico checkout path is not set."
+
+  local extras_dir="$KLIPPYAI_KLIPPER_CHECKOUT/klippy/extras"
+  local target_path="$extras_dir/gcode_shell_command.py"
+  [[ -d "$extras_dir" ]] || die "Klipper extras directory not found: $extras_dir"
+
+  if [[ -f "$target_path" ]]; then
+    log "gcode_shell_command.py is already installed at $target_path"
+    return
+  fi
+
+  local temp_file
+  local owner
+  local group
+  temp_file="$(mktemp)"
+  download_gcode_shell_command "$temp_file"
+  owner="$(stat -c '%u' "$extras_dir")"
+  group="$(stat -c '%g' "$extras_dir")"
+  backup_file "$target_path"
+  run_root install -o "$owner" -g "$group" -m 644 "$temp_file" "$target_path"
+  rm -f "$temp_file"
+  log "Installed gcode_shell_command.py to $target_path"
+}
+
 write_update_runner_script() {
   local temp_file
   temp_file="$(mktemp)"
@@ -1097,6 +1175,11 @@ EOF
 }
 
 write_update_sudoers_file() {
+  if [[ "${KLIPPYAI_UPDATE_MACRO_USES_SUDO:-yes}" != "yes" ]]; then
+    log "Skipping sudoers file because UPDATE_KLIPPYAI can run directly as root."
+    return
+  fi
+
   local temp_file
   temp_file="$(mktemp)"
 
@@ -1130,7 +1213,7 @@ write_update_macro_cfg() {
 # restarts the klippyai-agent systemd service.
 
 [gcode_shell_command klippyai_update]
-command: sudo -n $KLIPPYAI_UPDATE_RUNNER_PATH
+command: $KLIPPYAI_UPDATE_MACRO_COMMAND
 timeout: 600.
 verbose: True
 
@@ -1154,6 +1237,17 @@ install_update_macro_integration() {
     return
   fi
 
+  KLIPPYAI_UPDATE_MACRO_USES_SUDO="yes"
+  KLIPPYAI_UPDATE_MACRO_COMMAND="sudo -n $KLIPPYAI_UPDATE_RUNNER_PATH"
+  if [[ "$KLIPPYAI_KLIPPER_SYSTEM_USER" == "root" ]]; then
+    KLIPPYAI_UPDATE_MACRO_USES_SUDO="no"
+    KLIPPYAI_UPDATE_MACRO_COMMAND="$KLIPPYAI_UPDATE_RUNNER_PATH"
+  elif ! command -v sudo >/dev/null 2>&1; then
+    warn "Skipping UPDATE_KLIPPYAI macro because Klipper does not run as root and sudo is not installed."
+    INSTALL_UPDATE_MACRO="skipped"
+    return
+  fi
+
   write_update_runner_script
   write_update_sudoers_file
   write_update_macro_cfg
@@ -1172,9 +1266,6 @@ ensure_nginx_include() {
 
   [[ -n "$path" ]] || die "nginx server block path is not set."
   [[ -f "$path" ]] || die "nginx server block file not found: $path"
-  if file_has_trimmed_line "$path" "$include_line"; then
-    return
-  fi
 
   local temp_file
   temp_file="$(mktemp)"
@@ -1192,6 +1283,11 @@ ensure_nginx_include() {
       }
       return total
     }
+    function trim(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      return value
+    }
     {
       raw = $0
       line = strip_comments($0)
@@ -1199,6 +1295,8 @@ ensure_nginx_include() {
       if (!in_server) {
         if (line ~ /^[[:space:]]*server[[:space:]]*\{/) {
           in_server = 1
+          server_count++
+          server_has_include = 0
           depth = count_char(line, "{") - count_char(line, "}")
           print raw
           next
@@ -1207,22 +1305,37 @@ ensure_nginx_include() {
         next
       }
 
+      if (trim(strip_comments(raw)) == include_line) {
+        server_has_include = 1
+      }
+
       next_depth = depth + count_char(line, "{") - count_char(line, "}")
-      if (!inserted && depth > 0 && next_depth == 0) {
-        print "    " include_line
-        inserted = 1
+      if (depth > 0 && next_depth == 0) {
+        if (!server_has_include) {
+          print "    " include_line
+          inserted = 1
+        }
       }
       print raw
       depth = next_depth
+      if (in_server && depth == 0) {
+        in_server = 0
+        server_has_include = 0
+      }
     }
     END {
-      if (!inserted) {
+      if (server_count == 0) {
         exit 1
       }
     }
   ' "$path" >"$temp_file"; then
     rm -f "$temp_file"
     die "Could not find a server block to patch in $path"
+  fi
+
+  if cmp -s "$temp_file" "$path"; then
+    rm -f "$temp_file"
+    return
   fi
 
   local mode
@@ -1238,8 +1351,40 @@ ensure_nginx_include() {
 }
 
 reload_nginx() {
-  run_root nginx -t
-  run_root systemctl reload nginx
+  local nginx_bin=""
+  local nginx_config=""
+  local pid=""
+  local exe=""
+  local cmdline=""
+
+  for pid in $(pidof nginx 2>/dev/null || true); do
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    if [[ -z "$nginx_bin" ]] && [[ -n "$exe" ]] && [[ -x "$exe" ]]; then
+      nginx_bin="$exe"
+    fi
+
+    cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+    if [[ "$cmdline" == *"master process"* ]] && [[ "$cmdline" == *" -c "* ]]; then
+      nginx_config="${cmdline#* -c }"
+      nginx_config="${nginx_config%% *}"
+    fi
+  done
+
+  if [[ -z "$nginx_bin" ]]; then
+    nginx_bin="$(command -v nginx || true)"
+  fi
+  [[ -n "$nginx_bin" ]] || die "nginx executable not found."
+
+  if [[ -n "$nginx_config" ]] && [[ -f "$nginx_config" ]]; then
+    run_root "$nginx_bin" -t -c "$nginx_config"
+    run_root "$nginx_bin" -s reload -c "$nginx_config"
+    return
+  fi
+
+  run_root "$nginx_bin" -t
+  if ! run_root "$nginx_bin" -s reload; then
+    run_root systemctl reload nginx
+  fi
 }
 
 install_mainsail_custom_nav() {
@@ -1268,6 +1413,19 @@ install_octoeverywhere_integration() {
   "${cmd[@]}"
 }
 
+install_octoeverywhere_auto_reapply() {
+  [[ -n "${KLIPPYAI_OE_ROOT:-}" ]] || die "OctoEverywhere checkout path is not set."
+  local script_path="$INSTALL_DIR/integrations/octoeverywhere/install-auto-reapply.sh"
+  [[ -f "$script_path" ]] || die "OctoEverywhere auto-reapply helper not found: $script_path"
+
+  local cmd=(sh "$script_path" --install-dir "$INSTALL_DIR" --oe-root "$KLIPPYAI_OE_ROOT" --klippyai-prefix "$KLIPPYAI_ROOT_PATH" --klippyai-port "$KLIPPYAI_PORT" --nav-target "_blank")
+  if [[ -n "${KLIPPYAI_OE_SERVICE_NAME:-}" ]]; then
+    cmd+=(--service "$KLIPPYAI_OE_SERVICE_NAME")
+  fi
+
+  "${cmd[@]}"
+}
+
 print_summary() {
   cat <<EOF
 
@@ -1290,10 +1448,12 @@ Patch nginx include:  $PATCH_NGINX_INCLUDE
 Local bind port:      $KLIPPYAI_PORT
 Data dir:             $KLIPPYAI_DATA_DIR
 Runtime mode:         read-only
-KlippyAI log file:    $KLIPPYAI_LOGS_DIR_PATH/$KLIPPYAI_AGENT_LOG_FILE_NAME
-Mainsail nav link:    $INSTALL_MAINSAIL_NAV
-Update macro:         $INSTALL_UPDATE_MACRO
-OctoEverywhere patch: $INSTALL_OCTOEVERYWHERE_PATCH
+KlippyAI log file:        $KLIPPYAI_LOGS_DIR_PATH/$KLIPPYAI_AGENT_LOG_FILE_NAME
+Mainsail nav link:        $INSTALL_MAINSAIL_NAV
+gcode_shell_command:      $INSTALL_GCODE_SHELL_COMMAND
+Update macro:             $INSTALL_UPDATE_MACRO
+OctoEverywhere patch:     $INSTALL_OCTOEVERYWHERE_PATCH
+OE patch auto-reapply:    $INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY
 
 EOF
 }
@@ -1366,6 +1526,7 @@ main() {
   KLIPPYAI_SYSTEM_STATUS_ARTIFACT_CHAR_LIMIT="6000"
   KLIPPYAI_JOURNAL_ARTIFACT_CHAR_LIMIT="16000"
   KLIPPYAI_SYSTEM_COMMAND_TIMEOUT_SECONDS="6"
+  KLIPPYAI_KLIPPER_CHECKOUT="$(detect_klipper_checkout "$KLIPPYAI_MOONRAKER_CONFIG_PATH" "$INSTALL_HOME" || true)"
   KLIPPYAI_GCODE_SHELL_COMMAND_CHECKOUT="$(detect_gcode_shell_command_checkout "$KLIPPYAI_MOONRAKER_CONFIG_PATH" "$INSTALL_HOME" || true)"
   KLIPPYAI_OE_ROOT="$(detect_octoeverywhere_root "$INSTALL_HOME" || true)"
   KLIPPYAI_OE_SERVICE_NAME="$(detect_octoeverywhere_service_name || true)"
@@ -1375,8 +1536,10 @@ main() {
   KLIPPYAI_LEGACY_UPDATE_MACRO_CFG_PATH="$KLIPPYAI_MAINSAIL_CONFIG_DIR/klippyai-update-macro.cfg"
   KLIPPYAI_KLIPPER_SYSTEM_USER="$(detect_systemd_unit_user "$KLIPPYAI_KLIPPER_SERVICE_NAME" "$INSTALL_USER")"
   KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH=""
+  INSTALL_GCODE_SHELL_COMMAND="no"
   INSTALL_UPDATE_MACRO="no"
   INSTALL_OCTOEVERYWHERE_PATCH="no"
+  INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY="no"
 
   KLIPPYAI_LLM_PROVIDER="$(prompt_default "LLM provider (currently: openai or stub)" "openai")"
   KLIPPYAI_LLM_PROVIDER="${KLIPPYAI_LLM_PROVIDER,,}"
@@ -1425,7 +1588,18 @@ main() {
     if confirm "Install an UPDATE_KLIPPYAI macro that pulls the repo and restarts $SERVICE_NAME?" "N"; then
       INSTALL_UPDATE_MACRO="yes"
     fi
+  elif [[ -n "$KLIPPYAI_KLIPPER_CHECKOUT" ]]; then
+    warn "gcode_shell_command support was not found, but Klipper/Kalico checkout was detected at $KLIPPYAI_KLIPPER_CHECKOUT."
+    warn "gcode_shell_command allows Klipper macros to run host shell commands. Only install it if you trust this printer host configuration."
+    if confirm "Install gcode_shell_command from KIAUH, then install the UPDATE_KLIPPYAI macro?" "N"; then
+      INSTALL_GCODE_SHELL_COMMAND="yes"
+      KLIPPYAI_GCODE_SHELL_COMMAND_CHECKOUT="$KLIPPYAI_KLIPPER_CHECKOUT"
+      INSTALL_UPDATE_MACRO="yes"
+    else
+      INSTALL_UPDATE_MACRO="unavailable"
+    fi
   else
+    warn "Could not find a Klipper/Kalico checkout with klippy/extras, so gcode_shell_command cannot be installed automatically."
     INSTALL_UPDATE_MACRO="unavailable"
   fi
 
@@ -1433,9 +1607,13 @@ main() {
     log "Detected OctoEverywhere checkout at $KLIPPYAI_OE_ROOT."
     if confirm "Apply the optional OctoEverywhere /klippyai integration now?" "N"; then
       INSTALL_OCTOEVERYWHERE_PATCH="yes"
+      if confirm "Install an auto-reapply timer for the OctoEverywhere patch after future OE updates?" "Y"; then
+        INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY="yes"
+      fi
     fi
   else
     INSTALL_OCTOEVERYWHERE_PATCH="unavailable"
+    INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY="unavailable"
   fi
 
   print_summary
@@ -1529,6 +1707,11 @@ main() {
   run_root systemctl daemon-reload
   run_root systemctl enable --now "$SERVICE_NAME"
 
+  if [[ "$INSTALL_GCODE_SHELL_COMMAND" == "yes" ]]; then
+    log "Installing gcode_shell_command support."
+    install_gcode_shell_command_support
+  fi
+
   if [[ "$INSTALL_UPDATE_MACRO" == "yes" ]]; then
     log "Installing UPDATE_KLIPPYAI macro integration."
     install_update_macro_integration
@@ -1537,6 +1720,11 @@ main() {
   if [[ "$INSTALL_OCTOEVERYWHERE_PATCH" == "yes" ]]; then
     log "Applying OctoEverywhere /klippyai integration patch."
     install_octoeverywhere_integration
+  fi
+
+  if [[ "$INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY" == "yes" ]]; then
+    log "Installing OctoEverywhere patch auto-reapply timer."
+    install_octoeverywhere_auto_reapply
   fi
 
   cat <<EOF
@@ -1576,10 +1764,12 @@ EOF
     cat <<EOF
 
 Klipper update macro:
+- gcode_shell_command installed: $INSTALL_GCODE_SHELL_COMMAND
 - Generated macro config: $KLIPPYAI_UPDATE_MACRO_CFG_PATH
 - Included from: ${KLIPPYAI_KLIPPER_ROOT_CONFIG_PATH:-<unknown>}
 - Helper script: $KLIPPYAI_UPDATE_RUNNER_PATH
 - Sudoers entry: $KLIPPYAI_UPDATE_SUDOERS_PATH
+- Shell command: ${KLIPPYAI_UPDATE_MACRO_COMMAND:-sudo -n $KLIPPYAI_UPDATE_RUNNER_PATH}
 - Macro name: UPDATE_KLIPPYAI
 - Restart Klipper after install so it loads the new macro:
   sudo systemctl restart $KLIPPYAI_KLIPPER_SERVICE_NAME
@@ -1595,6 +1785,7 @@ OctoEverywhere integration:
 - Service: ${KLIPPYAI_OE_SERVICE_NAME:-<restart manually>}
 - Navigation target: new tab
 - Route: ${KLIPPYAI_ROOT_PATH%/}/
+- Auto-reapply timer: $INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY
 
 EOF
   fi

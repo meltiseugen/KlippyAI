@@ -240,7 +240,7 @@ if nav_target == "_blank":
                 {
                     // Ignore cross-window opener assignment issues.
                 }
-                popup.location.replace(resolvedUrl.toString());
+                oe_open_klippyai_popup_directly(popup, resolvedUrl);
                 if(typeof popup.focus === "function")
                 {
                     popup.focus();
@@ -263,6 +263,56 @@ ui_block = f"""    // KlippyAI local route patch start
         var klippyAiHref = "{klippyai_prefix_with_slash}";
         var klippyAiHrefNoSlash = klippyAiHref.endsWith("/") ? klippyAiHref.substring(0, klippyAiHref.length - 1) : klippyAiHref;
         var klippyAiDirectHref = klippyAiHref + "direct";
+
+        async function oe_fetch_klippyai_html(reason)
+        {{
+            var directUrl = new URL(klippyAiDirectHref, window.location.origin);
+            directUrl.searchParams.set(reason, String(Date.now()));
+            var response = await fetch(directUrl.toString(), {{
+                cache: "no-store",
+                credentials: "same-origin",
+                headers: {{
+                    "Accept": "text/html",
+                    "X-KlippyAI-Route-Rescue": "1"
+                }}
+            }});
+
+            if(!response.ok)
+            {{
+                throw new Error("KlippyAI direct route returned status " + response.status);
+            }}
+
+            var html = await response.text();
+            if(html.indexOf("data-api-base=") === -1 || html.indexOf("KlippyAI") === -1)
+            {{
+                throw new Error("KlippyAI direct route returned non-KlippyAI HTML.");
+            }}
+            return html;
+        }}
+
+        async function oe_open_klippyai_popup_directly(popup, visibleUrl)
+        {{
+            try
+            {{
+                var html = await oe_fetch_klippyai_html("_klippyai_direct_open");
+                try
+                {{
+                    popup.history.replaceState(null, "KlippyAI", visibleUrl.toString());
+                }}
+                catch(_historyError)
+                {{
+                    // Keep about:blank if the browser refuses a synthetic URL.
+                }}
+                popup.document.open();
+                popup.document.write(html);
+                popup.document.close();
+            }}
+            catch(error)
+            {{
+                oe_log("KlippyAI direct popup load failed: " + error);
+                popup.location.replace(visibleUrl.toString());
+            }}
+        }}
 
         function oe_reset_klippyai_nav_state(link)
         {{
@@ -332,23 +382,7 @@ ui_block = f"""    // KlippyAI local route patch start
 
             try
             {{
-                var directUrl = new URL(klippyAiDirectHref, window.location.origin);
-                directUrl.searchParams.set("_klippyai_direct", String(Date.now()));
-                var response = await fetch(directUrl.toString(), {{
-                    cache: "no-store",
-                    credentials: "same-origin",
-                    headers: {{
-                        "Accept": "text/html",
-                        "X-KlippyAI-Route-Rescue": "1"
-                    }}
-                }});
-
-                if(!response.ok)
-                {{
-                    throw new Error("KlippyAI direct route returned status " + response.status);
-                }}
-
-                var html = await response.text();
+                var html = await oe_fetch_klippyai_html("_klippyai_direct");
                 document.open();
                 document.write(html);
                 document.close();
@@ -426,7 +460,8 @@ if [ "$ROUTER_CHANGED" -eq 0 ] && [ "$UI_CHANGED" -eq 0 ]; then
   printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPPYAI_PORT"
   printf '  Nav target:  %s\n' "$NAV_TARGET"
   if [ "$RESTART_SERVICE" -eq 1 ]; then
-    printf 'Skipped systemd restart because no OctoEverywhere files changed.\n'
+    run_root systemctl restart "$OE_SERVICE"
+    printf 'Restarted systemd service: %s\n' "$OE_SERVICE"
   fi
   exit 0
 fi

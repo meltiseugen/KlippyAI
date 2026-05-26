@@ -18,6 +18,7 @@ from klippyai_agent.printerconfig import (
     ConfigRequestTarget,
     ConfigSnapshot,
     infer_config_request_target,
+    looks_like_config_content_request,
 )
 from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ArtifactInput, ConfigProposal, IssueFinding
@@ -233,7 +234,11 @@ def resolve_config_lookup(state: ConfigState) -> ConfigState:
         intent="locate",
         section_name=target_data.get("section_name"),
     )
-    response_text, next_actions = build_config_lookup_response(snapshot, target)
+    response_text, next_actions = build_config_lookup_response(
+        snapshot,
+        target,
+        include_content=looks_like_config_content_request(state.get("user_message", "")),
+    )
     return {
         "response_text": response_text,
         "next_actions": next_actions,

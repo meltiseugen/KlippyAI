@@ -52,6 +52,7 @@ _FEATURE_SECTION_PREFIXES: dict[ConfigFeature, tuple[str, ...]] = {
     "generic": (),
 }
 _DIRECT_SECTION_PATTERN = re.compile(r"\[([^\]]+)\]")
+_SECTION_LINE_PATTERN = re.compile(r"^\s*\[[^\]\n]+\]\s*$")
 
 
 @dataclass(slots=True)
@@ -140,6 +141,25 @@ class ConfigSnapshot:
             if any(_section_matches_prefix(location.section, prefix) for prefix in prefixes)
         ]
         return matches[:limit]
+
+    def section_block(self, location: ConfigSectionLocation) -> str | None:
+        document = next((item for item in self.documents if item.path == location.path), None)
+        if document is None:
+            return None
+
+        lines = document.content.splitlines()
+        start_index = max(location.line_number - 1, 0)
+        if start_index >= len(lines):
+            return None
+
+        end_index = len(lines)
+        for index in range(start_index + 1, len(lines)):
+            if _SECTION_LINE_PATTERN.match(lines[index]):
+                end_index = index
+                break
+
+        block = "\n".join(lines[start_index:end_index]).rstrip()
+        return block or None
 
     def to_prompt_block(self, max_documents: int | None = None) -> str:
         sections: list[str] = []
@@ -597,7 +617,7 @@ def looks_like_config_request(message: str) -> bool:
         return True
 
     has_generate_intent = any(word in lowered for word in generate_intent_words)
-    has_lookup_intent = any(word in lowered for word in lookup_intent_words)
+    has_lookup_intent = any(word in lowered for word in lookup_intent_words) or _looks_like_section_content_request(lowered)
     has_feature = any(keyword in lowered for _, keywords in _FEATURE_KEYWORDS for keyword in keywords)
     return has_feature and (has_generate_intent or has_lookup_intent)
 
@@ -605,6 +625,8 @@ def looks_like_config_request(message: str) -> bool:
 def build_config_lookup_response(
     snapshot: ConfigSnapshot,
     target: ConfigRequestTarget,
+    *,
+    include_content: bool = False,
 ) -> tuple[str, list[str]]:
     matches = snapshot.find_section_locations(target)
     label = _describe_lookup_target(target)
@@ -616,6 +638,10 @@ def build_config_lookup_response(
         next_actions: list[str] = []
         if len(matches) > 1:
             next_actions.append("Ask for an exact section name if you want one match narrowed further.")
+        elif include_content:
+            block = snapshot.section_block(matches[0])
+            if block:
+                lines.extend(["", "Config:", "```ini", block, "```"])
         return "\n".join(lines), next_actions
 
     lines = [f"I couldn't find any active {label} sections in the current config tree."]
@@ -638,7 +664,35 @@ def _looks_like_lookup_request(lowered_message: str) -> bool:
         "configured",
         "declared",
     )
-    return any(word in lowered_message for word in lookup_intent_words)
+    return any(word in lowered_message for word in lookup_intent_words) or _looks_like_section_content_request(lowered_message)
+
+
+def looks_like_config_content_request(message: str) -> bool:
+    return _looks_like_section_content_request(message.lower())
+
+
+def _looks_like_section_content_request(lowered_message: str) -> bool:
+    content_intent_words = (
+        "show",
+        "show me",
+        "give me",
+        "paste",
+        "print",
+        "display",
+        "what is in",
+    )
+    section_words = (
+        "section",
+        "block",
+        "definition",
+        "defined",
+        "current",
+        "existing",
+        "here",
+    )
+    return any(word in lowered_message for word in content_intent_words) and any(
+        word in lowered_message for word in section_words
+    )
 
 
 def _extract_explicit_section_name(message: str) -> str | None:
