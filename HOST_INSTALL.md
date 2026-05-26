@@ -84,9 +84,11 @@ with pip, or install it manually first:
 python3 -m pip install --user virtualenv
 ```
 
-The dependency set is pinned to avoid Rust-backed packages that are awkward on
-these pads. If an earlier install failed while building `uuid-utils`, remove the
-partial virtual environment and rerun the installer after updating the checkout:
+The default dependency set avoids Rust-backed packages that are awkward on these
+pads. If an earlier install failed while building `uuid-utils`, `ormsgpack`,
+`maturin`, or `pydantic-core`, remove the partial virtual environment and rerun
+the installer after updating the checkout. The installer also asks Python
+packages with optional speedups to use pure-Python fallbacks where possible.
 
 ```sh
 cd /root/KlippyAI

@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from klippyai_agent.model_compat import BaseModel
 from klippyai_agent.printerconfig import ConfigFeature
 
 ArtifactKind = Literal[

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
 from klippyai_agent.diagnostics import DiagnosticsCollector, RuleEngine
 from klippyai_agent.hostlogs import HostLogCollector
 from klippyai_agent.hostsystem import HostSystemCollector, SystemCommandRunner
@@ -27,7 +25,7 @@ class AppContainer:
         await self.moonraker.aclose()
 
 
-def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
+def build_container(settings: Settings) -> AppContainer:
     moonraker = MoonrakerClient(settings.moonraker_url)
     host_logs = None
     if settings.collect_host_logs:
@@ -72,8 +70,8 @@ def build_container(settings: Settings, checkpointer: Any) -> AppContainer:
         host_logs=host_logs,
         profile=profile,
     )
-    diagnosis_graph = build_diagnosis_graph(checkpointer)
-    config_graph = build_config_graph(checkpointer)
+    diagnosis_graph = build_diagnosis_graph()
+    config_graph = build_config_graph()
     sessions = InMemorySessionStore(settings.session_ttl_seconds)
     chat_service = ChatService(
         provider_name=diagnosis_provider.name,

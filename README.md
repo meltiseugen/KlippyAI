@@ -45,8 +45,8 @@ This repository is currently an early scaffold. What exists today:
 - FastAPI-based async agent service
 - full-page and embedded chat UI served by the agent
 - Moonraker client abstraction
-- LangGraph diagnostics workflow skeleton
-- LangChain provider integration path
+- lightweight local diagnostics workflow
+- direct OpenAI-compatible provider integration path
 - deterministic rule engine for a small set of common Klipper failures
 - host-side current `*.log` collection with configurable line-tail excerpts
 - runtime file logging to `printer_data/logs/klippyai.log` so host-side debugging is visible from Mainsail
@@ -112,9 +112,9 @@ What does not exist yet:
 
 ### Workflow Engine
 
-- use LangGraph for explicit, checkpointed workflows
-- use LangChain where it helps with model calls, structured outputs, and tool wiring
+- keep explicit, deterministic local workflows for diagnostics and config assistance
 - keep host access deterministic and tightly bounded
+- avoid Rust-backed runtime dependencies in the default host install so embedded printer images can install the package
 
 ## Architecture
 
@@ -122,7 +122,7 @@ What does not exist yet:
 - `Moonraker`: canonical source for printer state, managed files, and future integration points
 - `Mainsail integration`: supported custom-nav link in `v1`, optional native patch for advanced installs
 - `KlippyAI UI`: chat-style assistant UI served from the same origin
-- `LangGraph`: orchestration for diagnostics, config proposals, and future approval flows
+- `KlippyAI local workflows`: orchestration for diagnostics, config proposals, and future approval flows
 
 More detail lives in [docs/architecture.md](docs/architecture.md) and [docs/mainsail-shell.md](docs/mainsail-shell.md).
 
@@ -131,7 +131,7 @@ More detail lives in [docs/architecture.md](docs/architecture.md) and [docs/main
 Current code support:
 
 - `stub`: no external LLM call, useful for local UI and deterministic workflow development
-- `openai`: backed by `langchain-openai`
+- `openai`: direct HTTP integration with OpenAI-compatible chat completions
 
 Planned provider support is tracked in [BACKLOG.md](BACKLOG.md).
 
@@ -158,9 +158,10 @@ normal Klipper host with Bash and systemd. If the image has no `apt-get`, check
 for `opkg`/Entware or use a normal Klipper host instead. If Python `venv`
 support is absent but `pip` works, the installer can fall back to
 `python3 -m virtualenv`. On rooted Creality Nebula Pad-style layouts, the
-installer detects `/usr/data/printer_data` as the printer data root. The host
-dependency pins avoid newer Rust-backed packages such as `uuid-utils`, which are
-fragile on embedded printer images.
+installer detects `/usr/data/printer_data` as the printer data root. The default
+host dependency set avoids Rust-backed packages such as `uuid-utils` and
+`ormsgpack`, and pins Pydantic v1 to avoid `pydantic-core` builds on embedded
+printer images.
 
 To remove a host install later:
 
@@ -419,7 +420,7 @@ The intended security stance is:
 
 - The FastAPI app exposes `/`, `/healthz`, `/api/ui-sessions`, `/api/bootstrap`, `/api/chat`, and `/embed`.
 - The default provider is `stub`, so the app can boot without any external API key.
-- LangGraph checkpointing is wired toward SQLite for local host installs.
+- The runtime uses local in-process workflows for host installs; durable chat history is still planned.
 - Host log collection currently targets current `.log` files directly under `printer_data/logs` and sends the configured last lines from each file.
 - KlippyAI itself also writes a rotating runtime log at `printer_data/logs/klippyai.log`, intended to be visible from Mainsail alongside the other printer-host logs.
 - Systemd diagnostics currently target `systemctl show` plus the last `journalctl` lines for the configured Moonraker and Klipper units.

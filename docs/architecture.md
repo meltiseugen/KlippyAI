@@ -60,7 +60,7 @@ The embedded iframe route remains available for optional launcher/drawer integra
 
 ### Diagnostics Graph
 
-The first LangGraph workflow is explicit and narrow:
+The first local workflow is explicit and narrow:
 
 1. Collect context
 2. Run deterministic rules
@@ -69,7 +69,7 @@ The first LangGraph workflow is explicit and narrow:
 
 The graph should remain explicit rather than becoming a freeform autonomous agent.
 
-### Future Config Graph
+### Future Config Workflow
 
 The config workflow should eventually:
 
@@ -92,7 +92,7 @@ Any write path should require:
 
 For the initial local deployment target:
 
-- LangGraph checkpoints: SQLite
+- workflow state: in-memory for now
 - UI sessions: in-memory for now
 - future durable sessions: SQLite
 - secrets: server-side local file store with tight permissions
@@ -111,8 +111,8 @@ For the initial local deployment target:
 - UI session bootstrap endpoint
 - Moonraker reachability probe
 - deterministic rule engine for common Klipper failures
-- LangGraph diagnostics pipeline
-- OpenAI provider path through LangChain
+- local diagnostics workflow
+- direct OpenAI provider path
 - deployment skeleton for host installs
 
 ## Deferred Work

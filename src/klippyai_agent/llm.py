@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+import httpx
+from pydantic import Field
 
 from klippyai_agent.diagnostics import DiagnosticsSnapshot
+from klippyai_agent.model_compat import BaseModel
 from klippyai_agent.printerconfig import ConfigRequestTarget, ConfigSnapshot
 from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ConfigProposal, IssueFinding
@@ -520,41 +521,8 @@ class StubConfigAssistantProvider:
 class OpenAIDiagnosisProvider:
     name = "openai"
 
-    _PROMPT = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "You are an expert Klipper and Moonraker diagnostics assistant. "
-                    "Use supplied evidence first, do not invent printer state, keep the answer grounded, "
-                    "and propose safe next steps before any invasive change. "
-                    "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack. "
-                    "Be extremely brief: lead with the most likely root cause in 1-2 short sentences, cite exact file paths and lines when the evidence includes them, "
-                    "limit likely_causes to 1 item, limit recommended_actions to at most 2 short items, avoid background explanation, and only ask follow-up questions when the diagnosis is blocked by missing evidence."
-                ),
-            ),
-            (
-                "human",
-                (
-                    "User request:\n{user_message}\n\n"
-                    "Detected printer profile:\n{profile_block}\n\n"
-                    "Collected context:\n{context_block}\n\n"
-                    "Current config context:\n{config_block}\n\n"
-                    "Deterministic findings:\n{findings_block}\n\n"
-                    "Return a concise structured diagnosis with exact file references when available."
-                ),
-            ),
-        ]
-    )
-
     def __init__(self, model: str, api_key: str | None) -> None:
-        kwargs: dict[str, object] = {
-            "model": model,
-            "temperature": 0,
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        self._model = ChatOpenAI(**kwargs).with_structured_output(DiagnosisLLMOutput)
+        self._client = OpenAIJsonClient(model=model, api_key=api_key)
 
     async def analyze(self, payload: DiagnosisPromptPayload) -> DiagnosisLLMOutput:
         findings_block = "\n".join(
@@ -567,70 +535,117 @@ class OpenAIDiagnosisProvider:
         if not findings_block:
             findings_block = "No deterministic findings."
 
-        chain = self._PROMPT | self._model
-        return await chain.ainvoke(
-            {
-                "user_message": payload.user_message,
-                "profile_block": payload.profile.to_prompt_block(),
-                "context_block": payload.snapshot.to_prompt_block(),
-                "config_block": payload.config_snapshot.to_prompt_block(),
-                "findings_block": findings_block,
-            }
+        data = await self._client.complete_json(
+            system_prompt=(
+                "You are an expert Klipper and Moonraker diagnostics assistant. "
+                "Use supplied evidence first, do not invent printer state, keep the answer grounded, "
+                "and propose safe next steps before any invasive change. "
+                "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack. "
+                "Be extremely brief: lead with the most likely root cause in 1-2 short sentences, cite exact file paths and lines when the evidence includes them, "
+                "limit likely_causes to 1 item, limit recommended_actions to at most 2 short items, avoid background explanation, and only ask follow-up questions when the diagnosis is blocked by missing evidence. "
+                "Return only JSON with keys: summary, likely_causes, recommended_actions, follow_up_questions."
+            ),
+            user_prompt=(
+                f"User request:\n{payload.user_message}\n\n"
+                f"Detected printer profile:\n{payload.profile.to_prompt_block()}\n\n"
+                f"Collected context:\n{payload.snapshot.to_prompt_block()}\n\n"
+                f"Current config context:\n{payload.config_snapshot.to_prompt_block()}\n\n"
+                f"Deterministic findings:\n{findings_block}\n\n"
+                "Return a concise structured diagnosis with exact file references when available."
+            ),
         )
+        return DiagnosisLLMOutput.model_validate(_with_required_summary(data, "No diagnosis was returned."))
 
 
 class OpenAIConfigAssistantProvider:
     name = "openai"
 
-    _PROMPT = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                (
-                    "You are an expert Klipper and Kalico configuration assistant. "
-                    "Generate safe, reviewable config snippets only. Prefer managed include snippets under klippyai/*.cfg. "
-                    "Do not imply that you can write files or apply changes directly. "
-                    "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
-                    "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons. "
-                    "Keep summary and next actions brief because the UI renders proposal details separately."
-                ),
-            ),
-            (
-                "human",
-                (
-                    "User request:\n{user_message}\n\n"
-                    "Detected printer profile:\n{profile_block}\n\n"
-                    "Detected target:\n{target_feature}\n"
-                    "Detection rationale:\n{target_rationale}\n\n"
-                    "Collected runtime context:\n{runtime_block}\n\n"
-                    "Current config context:\n{config_block}\n\n"
-                    "Return a concise structured config proposal."
-                ),
-            ),
-        ]
-    )
-
     def __init__(self, model: str, api_key: str | None) -> None:
-        kwargs: dict[str, object] = {
-            "model": model,
-            "temperature": 0,
-        }
-        if api_key:
-            kwargs["api_key"] = api_key
-        self._model = ChatOpenAI(**kwargs).with_structured_output(ConfigAssistantOutput)
+        self._client = OpenAIJsonClient(model=model, api_key=api_key)
 
     async def propose(self, payload: ConfigPromptPayload) -> ConfigAssistantOutput:
-        chain = self._PROMPT | self._model
-        return await chain.ainvoke(
-            {
-                "user_message": payload.user_message,
-                "profile_block": payload.profile.to_prompt_block(),
-                "target_feature": payload.target.feature,
-                "target_rationale": payload.target.rationale,
-                "runtime_block": payload.runtime_snapshot.to_prompt_block() if payload.runtime_snapshot else "No runtime context collected.",
-                "config_block": payload.snapshot.to_prompt_block(),
-            }
+        data = await self._client.complete_json(
+            system_prompt=(
+                "You are an expert Klipper and Kalico configuration assistant. "
+                "Generate safe, reviewable config snippets only. Prefer managed include snippets under klippyai/*.cfg. "
+                "Do not imply that you can write files or apply changes directly. "
+                "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
+                "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons. "
+                "Keep summary and next actions brief because the UI renders proposal details separately. "
+                "Return only JSON with keys: summary, proposals, next_actions, follow_up_questions. "
+                "Each proposal must include: feature, title, target_file, config, rationale, assumptions, warnings."
+            ),
+            user_prompt=(
+                f"User request:\n{payload.user_message}\n\n"
+                f"Detected printer profile:\n{payload.profile.to_prompt_block()}\n\n"
+                f"Detected target:\n{payload.target.feature}\n"
+                f"Detection rationale:\n{payload.target.rationale}\n\n"
+                f"Collected runtime context:\n{payload.runtime_snapshot.to_prompt_block() if payload.runtime_snapshot else 'No runtime context collected.'}\n\n"
+                f"Current config context:\n{payload.snapshot.to_prompt_block()}\n\n"
+                "Return a concise structured config proposal."
+            ),
         )
+        return ConfigAssistantOutput.model_validate(_with_required_summary(data, "No config proposal was returned."))
+
+
+class OpenAIJsonClient:
+    def __init__(self, model: str, api_key: str | None) -> None:
+        self._model = model
+        self._api_key = api_key
+
+    async def complete_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        if not self._api_key:
+            raise ValueError("OpenAI provider selected but no API key is configured.")
+
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+
+        data = response.json()
+        content = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        return _parse_json_object(str(content))
+
+
+def _parse_json_object(value: str) -> dict[str, Any]:
+    normalized = value.strip()
+    if normalized.startswith("```"):
+        lines = normalized.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        normalized = "\n".join(lines).strip()
+
+    parsed = json.loads(normalized or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("OpenAI response was not a JSON object.")
+    return parsed
+
+
+def _with_required_summary(data: dict[str, Any], fallback: str) -> dict[str, Any]:
+    if not str(data.get("summary", "")).strip():
+        data = {**data, "summary": fallback}
+    return data
 
 
 def build_diagnosis_provider(settings: Settings) -> DiagnosisProvider:

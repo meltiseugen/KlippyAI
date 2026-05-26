@@ -1,11 +1,8 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from typing import Any, TypedDict
-
-from langgraph.graph import END, START, StateGraph
-from langgraph.runtime import Runtime
-from langgraph.types import interrupt
 
 from klippyai_agent.diagnostics import DiagnosticsCollector, DiagnosticsSnapshot, RuleEngine
 from klippyai_agent.hostlogs import HostLogCollector
@@ -35,6 +32,11 @@ class WorkflowContext:
     config_llm: ConfigAssistantProvider
     host_logs: HostLogCollector | None
     profile: PrinterProfile
+
+
+@dataclass(slots=True)
+class WorkflowRuntime:
+    context: WorkflowContext
 
 
 class DiagnosisState(TypedDict, total=False):
@@ -76,7 +78,7 @@ class ConfigState(TypedDict, total=False):
 
 async def collect_context(
     state: DiagnosisState,
-    runtime: Runtime[WorkflowContext],
+    runtime: WorkflowRuntime,
 ) -> DiagnosisState:
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
     snapshot = await runtime.context.collector.collect(input_artifacts)
@@ -96,7 +98,7 @@ async def collect_context(
 
 async def run_rules(
     state: DiagnosisState,
-    runtime: Runtime[WorkflowContext],
+    runtime: WorkflowRuntime,
 ) -> DiagnosisState:
     snapshot_data = state.get("snapshot", {})
     artifact_items = snapshot_data.get("artifacts", state.get("artifacts", []))
@@ -111,7 +113,7 @@ async def run_rules(
 
 async def call_llm(
     state: DiagnosisState,
-    runtime: Runtime[WorkflowContext],
+    runtime: WorkflowRuntime,
 ) -> DiagnosisState:
     snapshot_data = state.get("snapshot", {})
     artifact_items = snapshot_data.get("artifacts", state.get("artifacts", []))
@@ -189,7 +191,7 @@ def detect_config_target(state: ConfigState) -> ConfigState:
 
 async def collect_config_context(
     state: ConfigState,
-    runtime: Runtime[WorkflowContext],
+    runtime: WorkflowRuntime,
 ) -> ConfigState:
     snapshot = runtime.context.config_collector.collect()
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
@@ -241,7 +243,7 @@ def resolve_config_lookup(state: ConfigState) -> ConfigState:
 
 async def call_config_llm(
     state: ConfigState,
-    runtime: Runtime[WorkflowContext],
+    runtime: WorkflowRuntime,
 ) -> ConfigState:
     target_data = state.get("feature_target", {})
     snapshot_data = state.get("config_snapshot", {})
@@ -332,14 +334,7 @@ def route_config_request(state: ConfigState) -> str:
 
 
 def request_approval(state: ApplyChangeState) -> ApplyChangeState:
-    decision = interrupt(
-        {
-            "target_file": state["target_file"],
-            "diff": state["diff"],
-            "rationale": state["rationale"],
-        }
-    )
-    return {"approval": str(decision)}
+    return {"approval": str(state.get("approval", ""))}
 
 
 def finalize_change(state: ApplyChangeState) -> ApplyChangeState:
@@ -348,48 +343,68 @@ def finalize_change(state: ApplyChangeState) -> ApplyChangeState:
     return {"status": status}
 
 
-def build_diagnosis_graph(checkpointer: Any):
-    graph = StateGraph(DiagnosisState, context_schema=WorkflowContext)
-    graph.add_node("collect_context", collect_context)
-    graph.add_node("run_rules", run_rules)
-    graph.add_node("call_llm", call_llm)
-    graph.add_node("compose_response", compose_response)
-    graph.add_edge(START, "collect_context")
-    graph.add_edge("collect_context", "run_rules")
-    graph.add_edge("run_rules", "call_llm")
-    graph.add_edge("call_llm", "compose_response")
-    graph.add_edge("compose_response", END)
-    return graph.compile(checkpointer=checkpointer)
+class SimpleWorkflow:
+    def __init__(self, nodes: list[Any]) -> None:
+        self._nodes = nodes
+
+    async def ainvoke(
+        self,
+        state: dict[str, Any],
+        *,
+        config: dict[str, Any] | None = None,
+        context: WorkflowContext,
+    ) -> dict[str, Any]:
+        del config
+        current = dict(state)
+        runtime = WorkflowRuntime(context=context)
+        for node in self._nodes:
+            update = node(current, runtime) if _accepts_runtime(node) else node(current)
+            if inspect.isawaitable(update):
+                update = await update
+            if update:
+                current.update(update)
+        return current
 
 
-def build_config_graph(checkpointer: Any):
-    graph = StateGraph(ConfigState, context_schema=WorkflowContext)
-    graph.add_node("detect_config_target", detect_config_target)
-    graph.add_node("collect_config_context", collect_config_context)
-    graph.add_node("resolve_config_lookup", resolve_config_lookup)
-    graph.add_node("call_config_llm", call_config_llm)
-    graph.add_node("compose_config_response", compose_config_response)
-    graph.add_edge(START, "detect_config_target")
-    graph.add_edge("detect_config_target", "collect_config_context")
-    graph.add_edge("collect_config_context", "resolve_config_lookup")
-    graph.add_conditional_edges(
-        "resolve_config_lookup",
-        route_config_request,
-        {
-            "lookup_done": END,
-            "call_llm": "call_config_llm",
-        },
-    )
-    graph.add_edge("call_config_llm", "compose_config_response")
-    graph.add_edge("compose_config_response", END)
-    return graph.compile(checkpointer=checkpointer)
+class ConfigWorkflow:
+    async def ainvoke(
+        self,
+        state: dict[str, Any],
+        *,
+        config: dict[str, Any] | None = None,
+        context: WorkflowContext,
+    ) -> dict[str, Any]:
+        del config
+        current = dict(state)
+        runtime = WorkflowRuntime(context=context)
+        for node in (detect_config_target, collect_config_context, resolve_config_lookup):
+            update = node(current, runtime) if _accepts_runtime(node) else node(current)
+            if inspect.isawaitable(update):
+                update = await update
+            if update:
+                current.update(update)
+        if route_config_request(current) == "lookup_done":
+            return current
+        for node in (call_config_llm, compose_config_response):
+            update = node(current, runtime) if _accepts_runtime(node) else node(current)
+            if inspect.isawaitable(update):
+                update = await update
+            if update:
+                current.update(update)
+        return current
 
 
-def build_apply_change_graph(checkpointer: Any):
-    graph = StateGraph(ApplyChangeState)
-    graph.add_node("request_approval", request_approval)
-    graph.add_node("finalize_change", finalize_change)
-    graph.add_edge(START, "request_approval")
-    graph.add_edge("request_approval", "finalize_change")
-    graph.add_edge("finalize_change", END)
-    return graph.compile(checkpointer=checkpointer)
+def _accepts_runtime(node: Any) -> bool:
+    return len(inspect.signature(node).parameters) >= 2
+
+
+def build_diagnosis_graph() -> SimpleWorkflow:
+    return SimpleWorkflow([collect_context, run_rules, call_llm, compose_response])
+
+
+def build_config_graph() -> ConfigWorkflow:
+    return ConfigWorkflow()
+
+
+def build_apply_change_graph() -> SimpleWorkflow:
+    return SimpleWorkflow([request_approval, finalize_change])

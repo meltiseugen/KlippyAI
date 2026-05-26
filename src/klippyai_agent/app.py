@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from klippyai_agent.container import AppContainer, build_container
 from klippyai_agent.schemas import BootstrapResponse, ChatRequest, ChatResponse, UiSessionResponse
@@ -32,21 +31,19 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info(
-            "Application startup checkpoint_db=%s printer_data_root=%s host_logs_dir=%s",
-            settings.checkpoint_db,
+            "Application startup printer_data_root=%s host_logs_dir=%s",
             settings.printer_data_root,
             settings.host_logs_dir(),
         )
-        async with AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_db)) as checkpointer:
-            container = build_container(settings, checkpointer)
-            app.state.container = container
-            logger.info("Application startup complete.")
-            try:
-                yield
-            finally:
-                logger.info("Application shutdown started.")
-                await container.aclose()
-                logger.info("Application shutdown complete.")
+        container = build_container(settings)
+        app.state.container = container
+        logger.info("Application startup complete.")
+        try:
+            yield
+        finally:
+            logger.info("Application shutdown started.")
+            await container.aclose()
+            logger.info("Application shutdown complete.")
 
     app = FastAPI(
         title=settings.app_name,

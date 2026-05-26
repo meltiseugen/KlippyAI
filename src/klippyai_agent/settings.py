@@ -5,19 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
-from pydantic import SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseSettings, Field, SecretStr, root_validator, validator
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="KLIPPYAI_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
     app_name: str = "KlippyAI"
     environment: str = "development"
     config_file: Path = Path("/home/pi/printer_data/config/klippyai/klippyai.cfg")
@@ -74,7 +65,13 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     enable_write_actions: bool = False
 
-    @field_validator(
+    class Config:
+        env_prefix = "KLIPPYAI_"
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        extra = "ignore"
+
+    @validator(
         "firmware_flavor",
         "firmware_version",
         "config_root_file",
@@ -90,25 +87,22 @@ class Settings(BaseSettings):
         "filament_sensor",
         "camera_stack",
         "addons",
-        mode="before",
+        pre=True,
     )
-    @classmethod
     def _normalize_optional_identity(cls, value: Any) -> str | None:
         if value is None:
             return None
         normalized = str(value).strip()
         return normalized or None
 
-    @field_validator("agent_log_file_name", "agent_log_level", mode="before")
-    @classmethod
+    @validator("agent_log_file_name", "agent_log_level", pre=True)
     def _normalize_required_strings(cls, value: Any) -> str:
         normalized = str(value or "").strip()
         if not normalized:
             raise ValueError("Logging settings must not be blank.")
         return normalized
 
-    @field_validator("log_tail_lines_overrides", mode="before")
-    @classmethod
+    @validator("log_tail_lines_overrides", pre=True)
     def _normalize_log_tail_lines_overrides(cls, value: Any) -> dict[str, int]:
         if value is None:
             return {}
@@ -123,8 +117,7 @@ class Settings(BaseSettings):
             normalized[key] = int(raw_value)
         return normalized
 
-    @field_validator("excluded_logs", mode="before")
-    @classmethod
+    @validator("excluded_logs", pre=True)
     def _normalize_excluded_logs(cls, value: Any) -> list[str]:
         if value is None:
             return []
@@ -145,19 +138,19 @@ class Settings(BaseSettings):
             normalized.append(item)
         return normalized
 
-    @model_validator(mode="after")
-    def _enforce_read_only_runtime(self) -> "Settings":
+    @root_validator
+    def _enforce_read_only_runtime(cls, values: dict[str, Any]) -> dict[str, Any]:
         # KlippyAI runtime is intentionally shackled for now. Keep the flag for
         # forward compatibility, but do not allow it to enable file writes.
-        self.enable_write_actions = False
-        self.agent_log_level = self.agent_log_level.upper()
-        if not self.public_base_url:
-            self.public_base_url = f"http://{self.host}:{self.port}"
-        self.log_tail_lines_overrides = {
-            key: value for key, value in self.log_tail_lines_overrides.items() if value > 0
+        values["enable_write_actions"] = False
+        values["agent_log_level"] = str(values.get("agent_log_level", "INFO")).upper()
+        if not values.get("public_base_url"):
+            values["public_base_url"] = f"http://{values.get('host', '127.0.0.1')}:{values.get('port', 8811)}"
+        values["log_tail_lines_overrides"] = {
+            key: value for key, value in values.get("log_tail_lines_overrides", {}).items() if value > 0
         }
-        self.excluded_logs = [item for item in self.excluded_logs if item]
-        return self
+        values["excluded_logs"] = [item for item in values.get("excluded_logs", []) if item]
+        return values
 
     def host_logs_dir(self) -> Path:
         if self.logs_dir_path.is_absolute():
@@ -183,7 +176,7 @@ def _load_klippyai_cfg_values(config_file: Path) -> dict[str, Any]:
     )
     parser.read(config_file, encoding="utf-8")
 
-    field_names = set(Settings.model_fields)
+    field_names = set(Settings.__fields__)
     section_aliases: dict[str, dict[str, str]] = {
         "config_context": {
             "root_config_file": "config_root_file",
