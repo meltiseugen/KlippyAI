@@ -84,6 +84,16 @@ with pip, or install it manually first:
 python3 -m pip install --user virtualenv
 ```
 
+The dependency set is pinned to avoid Rust-backed packages that are awkward on
+these pads. If an earlier install failed while building `uuid-utils`, remove the
+partial virtual environment and rerun the installer after updating the checkout:
+
+```sh
+cd /root/KlippyAI
+rm -rf .venv
+./install.sh
+```
+
 You also need:
 
 - an OpenAI API key if you want live LLM responses

@@ -158,7 +158,9 @@ normal Klipper host with Bash and systemd. If the image has no `apt-get`, check
 for `opkg`/Entware or use a normal Klipper host instead. If Python `venv`
 support is absent but `pip` works, the installer can fall back to
 `python3 -m virtualenv`. On rooted Creality Nebula Pad-style layouts, the
-installer detects `/usr/data/printer_data` as the printer data root.
+installer detects `/usr/data/printer_data` as the printer data root. The host
+dependency pins avoid newer Rust-backed packages such as `uuid-utils`, which are
+fragile on embedded printer images.
 
 To remove a host install later:
 

@@ -1083,7 +1083,7 @@ run_as_install_user() {
 }
 
 run_as_install_user git -C "\$INSTALL_DIR" pull --ff-only
-run_as_install_user "\$INSTALL_DIR/.venv/bin/python" -m pip install -e "\$INSTALL_DIR"
+run_as_install_user "\$INSTALL_DIR/.venv/bin/python" -m pip install --prefer-binary -e "\$INSTALL_DIR"
 systemctl restart "\$SERVICE_NAME"
 printf 'KlippyAI updated and %s restarted.\\n' "\$SERVICE_NAME"
 EOF
@@ -1465,7 +1465,7 @@ main() {
 
   log "Installing Python package into the virtual environment."
   run_as_user "$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip
-  run_as_user "$INSTALL_DIR/.venv/bin/python" -m pip install -e "$INSTALL_DIR"
+  run_as_user "$INSTALL_DIR/.venv/bin/python" -m pip install --prefer-binary -e "$INSTALL_DIR"
 
   log "Writing /etc/klippyai/klippyai.env"
   write_env_file
