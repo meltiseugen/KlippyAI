@@ -316,6 +316,7 @@ gcode:
     RUN_SHELL_COMMAND CMD=klippyai_update
 EOF
 
+run_root install -d -m 755 "$(dirname "$UPDATE_RUNNER_PATH")"
 run_root install -m 755 "$RUNNER_TMP" "$UPDATE_RUNNER_PATH"
 run_root install -d -m 755 "$MANAGED_CONFIG_DIR"
 run_root install -m 664 "$MACRO_TMP" "$UPDATE_MACRO_CFG_PATH"
@@ -332,6 +333,7 @@ if [ "$USES_SUDO" -eq 1 ]; then
   else
     log "visudo is not installed; skipping sudoers syntax validation."
   fi
+  run_root install -d -m 755 "$(dirname "$UPDATE_SUDOERS_PATH")"
   run_root install -m 440 "$SUDOERS_TMP" "$UPDATE_SUDOERS_PATH"
 else
   log "Klipper runs as root; sudoers file is not needed."

@@ -17,6 +17,7 @@ Options:
   --nav-target VALUE      Sidebar click behavior: _blank or _self. Default: _blank
   --restart-service       Restart the OctoEverywhere systemd service after patching
   --service NAME          Service name to restart with --restart-service. Default: octoeverywhere
+  --restore-original      Restore patched OctoEverywhere files from git before an OctoEverywhere update
   -h, --help              Show this help
 EOF
 }
@@ -42,6 +43,9 @@ KLIPPYAI_PORT="8811"
 NAV_TARGET="_blank"
 RESTART_SERVICE=0
 OE_SERVICE="octoeverywhere"
+RESTORE_ORIGINAL=0
+SUSPEND_FILE="/etc/klippyai/octoeverywhere-reapply.suspended"
+BACKUP_DIR="/etc/klippyai/octoeverywhere-backups"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -68,6 +72,10 @@ while [ $# -gt 0 ]; do
     --service)
       OE_SERVICE="$2"
       shift 2
+      ;;
+    --restore-original|--restore)
+      RESTORE_ORIGINAL=1
+      shift
       ;;
     -h|--help)
       usage
@@ -116,9 +124,10 @@ ROUTER_FILE="$OE_ROOT/moonraker_octoeverywhere/moonrakerapirouter.py"
 UI_FILE="$OE_ROOT/moonraker_octoeverywhere/static/oe-ui.js"
 ROUTER_TMP="$(mktemp)"
 UI_TMP="$(mktemp)"
+SUSPEND_TMP="$(mktemp)"
 
 cleanup() {
-  rm -f "$ROUTER_TMP" "$UI_TMP"
+  rm -f "$ROUTER_TMP" "$UI_TMP" "$SUSPEND_TMP"
 }
 trap cleanup EXIT
 
@@ -130,6 +139,54 @@ fi
 if [ ! -f "$UI_FILE" ]; then
   printf 'OctoEverywhere injected UI helper not found: %s\n' "$UI_FILE" >&2
   exit 1
+fi
+
+backup_file_to_dir() {
+  source_path="$1"
+  label="$2"
+  backup_path="$BACKUP_DIR/$label.$STAMP"
+  run_root install -d -m 755 "$BACKUP_DIR"
+  run_root cp "$source_path" "$backup_path"
+  printf '%s' "$backup_path"
+}
+
+if [ "$RESTORE_ORIGINAL" -eq 1 ]; then
+  command -v git >/dev/null 2>&1 || {
+    printf 'git is required to restore the OctoEverywhere checkout before update.\n' >&2
+    exit 1
+  }
+  if [ ! -d "$OE_ROOT/.git" ]; then
+    printf 'OctoEverywhere checkout is not a git repository: %s\n' "$OE_ROOT" >&2
+    exit 1
+  fi
+
+  STAMP="$(date +%Y%m%d-%H%M%S)"
+  ROUTER_BACKUP="$(backup_file_to_dir "$ROUTER_FILE" "moonrakerapirouter.py.restore-backup")"
+  UI_BACKUP="$(backup_file_to_dir "$UI_FILE" "oe-ui.js.restore-backup")"
+  run_root git -C "$OE_ROOT" checkout -- \
+    moonraker_octoeverywhere/moonrakerapirouter.py \
+    moonraker_octoeverywhere/static/oe-ui.js
+
+  {
+    printf 'KlippyAI OctoEverywhere auto-reapply is suspended for an OctoEverywhere update.\n'
+    printf 'Created: %s\n' "$STAMP"
+    printf 'Reapply the KlippyAI patch after updating OctoEverywhere to remove this file.\n'
+  } >"$SUSPEND_TMP"
+  run_root install -d -m 755 "$(dirname "$SUSPEND_FILE")"
+  run_root install -m 644 "$SUSPEND_TMP" "$SUSPEND_FILE"
+
+  printf 'Restored OctoEverywhere tracked files from git at %s\n' "$OE_ROOT"
+  printf '  Router backup: %s\n' "$ROUTER_BACKUP"
+  printf '  UI backup:     %s\n' "$UI_BACKUP"
+  printf '  Auto-reapply suspended by: %s\n' "$SUSPEND_FILE"
+  if [ "$RESTART_SERVICE" -eq 1 ]; then
+    run_root systemctl restart "$OE_SERVICE"
+    printf 'Restarted systemd service: %s\n' "$OE_SERVICE"
+  fi
+  printf 'Next steps:\n'
+  printf '  1. Update OctoEverywhere from Mainsail/Moonraker.\n'
+  printf '  2. Re-run this script without --restore-original to reapply KlippyAI.\n'
+  exit 0
 fi
 
 OE_ROUTER_FILE="$ROUTER_FILE" \
@@ -463,16 +520,20 @@ if [ "$ROUTER_CHANGED" -eq 0 ] && [ "$UI_CHANGED" -eq 0 ]; then
     run_root systemctl restart "$OE_SERVICE"
     printf 'Restarted systemd service: %s\n' "$OE_SERVICE"
   fi
+  if [ -f "$SUSPEND_FILE" ]; then
+    run_root rm -f "$SUSPEND_FILE"
+    printf 'Resumed OctoEverywhere auto-reapply by removing: %s\n' "$SUSPEND_FILE"
+  fi
   exit 0
 fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 if [ "$ROUTER_CHANGED" -eq 1 ]; then
-  cp "$ROUTER_FILE" "$ROUTER_FILE.klippyai-backup-$STAMP"
+  ROUTER_BACKUP="$(backup_file_to_dir "$ROUTER_FILE" "moonrakerapirouter.py.patch-backup")"
   cat "$ROUTER_TMP" >"$ROUTER_FILE"
 fi
 if [ "$UI_CHANGED" -eq 1 ]; then
-  cp "$UI_FILE" "$UI_FILE.klippyai-backup-$STAMP"
+  UI_BACKUP="$(backup_file_to_dir "$UI_FILE" "oe-ui.js.patch-backup")"
   cat "$UI_TMP" >"$UI_FILE"
 fi
 
@@ -483,10 +544,17 @@ printf '  Route:       %s/ -> http://127.0.0.1:%s/\n' "$KLIPPYAI_PREFIX" "$KLIPP
 printf '  Nav target:  %s\n' "$NAV_TARGET"
 printf '  Router edit: %s\n' "$( [ "$ROUTER_CHANGED" -eq 1 ] && printf changed || printf unchanged )"
 printf '  UI edit:     %s\n' "$( [ "$UI_CHANGED" -eq 1 ] && printf changed || printf unchanged )"
+[ "$ROUTER_CHANGED" -eq 1 ] && printf '  Router backup: %s\n' "$ROUTER_BACKUP"
+[ "$UI_CHANGED" -eq 1 ] && printf '  UI backup:     %s\n' "$UI_BACKUP"
 
 if [ "$RESTART_SERVICE" -eq 1 ]; then
   run_root systemctl restart "$OE_SERVICE"
   printf 'Restarted systemd service: %s\n' "$OE_SERVICE"
+fi
+
+if [ -f "$SUSPEND_FILE" ]; then
+  run_root rm -f "$SUSPEND_FILE"
+  printf 'Resumed OctoEverywhere auto-reapply by removing: %s\n' "$SUSPEND_FILE"
 fi
 
 printf 'Next steps:\n'

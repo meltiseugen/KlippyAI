@@ -174,6 +174,7 @@ KLIPPYAI_PREFIX="$KLIPPYAI_PREFIX"
 KLIPPYAI_PORT="$KLIPPYAI_PORT"
 NAV_TARGET="$NAV_TARGET"
 OE_SERVICE="$OE_SERVICE"
+SUSPEND_FILE="/etc/klippyai/octoeverywhere-reapply.suspended"
 
 ROUTER_FILE="\$OE_ROOT/moonraker_octoeverywhere/moonrakerapirouter.py"
 UI_FILE="\$OE_ROOT/moonraker_octoeverywhere/static/oe-ui.js"
@@ -195,6 +196,11 @@ patch_is_present() {
 
 if patch_is_present; then
   log "OctoEverywhere patch is present; nothing to do."
+  exit 0
+fi
+
+if [ -f "\$SUSPEND_FILE" ]; then
+  log "Auto-reapply is suspended by \$SUSPEND_FILE; leaving OctoEverywhere repo clean for update."
   exit 0
 fi
 

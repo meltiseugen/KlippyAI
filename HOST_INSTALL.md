@@ -265,6 +265,9 @@ Optional OctoEverywhere path:
 - if you choose the OctoEverywhere patch in the installer, it can also install
   a small systemd timer that reapplies the patch after future OE updates replace
   the patched files
+- because the patch edits two tracked files in the OctoEverywhere checkout,
+  Moonraker can show the OE repo as dirty before an OE update. Restore the patch
+  first, update OctoEverywhere, then reapply the patch.
 
 Manual auto-reapply timer install:
 
@@ -274,6 +277,28 @@ sh integrations/octoeverywhere/install-auto-reapply.sh \
   --klippyai-prefix /klippyai \
   --klippyai-port 8811 \
   --nav-target _blank \
+  --service octoeverywhere
+```
+
+Prepare for an OctoEverywhere update:
+
+```bash
+sh integrations/octoeverywhere/apply-local-klippyai-route-patch.sh \
+  --oe-root /usr/data/octoeverywhere \
+  --restore-original \
+  --restart-service \
+  --service octoeverywhere
+```
+
+After the OctoEverywhere update finishes, reapply KlippyAI:
+
+```bash
+sh integrations/octoeverywhere/apply-local-klippyai-route-patch.sh \
+  --oe-root /usr/data/octoeverywhere \
+  --klippyai-prefix /klippyai \
+  --klippyai-port 8811 \
+  --nav-target _blank \
+  --restart-service \
   --service octoeverywhere
 ```
 

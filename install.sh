@@ -1170,6 +1170,7 @@ printf 'KlippyAI updated and %s restarted.\\n' "\$SERVICE_NAME"
 EOF
 
   backup_file "$KLIPPYAI_UPDATE_RUNNER_PATH"
+  run_root install -d -m 755 "$(dirname "$KLIPPYAI_UPDATE_RUNNER_PATH")"
   run_root install -m 755 "$temp_file" "$KLIPPYAI_UPDATE_RUNNER_PATH"
   rm -f "$temp_file"
 }
@@ -1197,6 +1198,7 @@ write_update_sudoers_file() {
   fi
 
   backup_file "$KLIPPYAI_UPDATE_SUDOERS_PATH"
+  run_root install -d -m 755 "$(dirname "$KLIPPYAI_UPDATE_SUDOERS_PATH")"
   run_root install -m 440 "$temp_file" "$KLIPPYAI_UPDATE_SUDOERS_PATH"
   rm -f "$temp_file"
 }
@@ -1707,16 +1709,6 @@ main() {
   run_root systemctl daemon-reload
   run_root systemctl enable --now "$SERVICE_NAME"
 
-  if [[ "$INSTALL_GCODE_SHELL_COMMAND" == "yes" ]]; then
-    log "Installing gcode_shell_command support."
-    install_gcode_shell_command_support
-  fi
-
-  if [[ "$INSTALL_UPDATE_MACRO" == "yes" ]]; then
-    log "Installing UPDATE_KLIPPYAI macro integration."
-    install_update_macro_integration
-  fi
-
   if [[ "$INSTALL_OCTOEVERYWHERE_PATCH" == "yes" ]]; then
     log "Applying OctoEverywhere /klippyai integration patch."
     install_octoeverywhere_integration
@@ -1725,6 +1717,16 @@ main() {
   if [[ "$INSTALL_OCTOEVERYWHERE_AUTO_REAPPLY" == "yes" ]]; then
     log "Installing OctoEverywhere patch auto-reapply timer."
     install_octoeverywhere_auto_reapply
+  fi
+
+  if [[ "$INSTALL_GCODE_SHELL_COMMAND" == "yes" ]]; then
+    log "Installing gcode_shell_command support."
+    install_gcode_shell_command_support
+  fi
+
+  if [[ "$INSTALL_UPDATE_MACRO" == "yes" ]]; then
+    log "Installing UPDATE_KLIPPYAI macro integration."
+    install_update_macro_integration
   fi
 
   cat <<EOF
