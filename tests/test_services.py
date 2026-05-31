@@ -242,6 +242,112 @@ async def test_chat_service_uses_llm_intent_router_for_ambiguous_requests() -> N
 
 
 @pytest.mark.asyncio
+async def test_chat_service_sends_recent_history_to_intent_router_for_followups() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    intent_router = _FakeIntentRouter(
+        {
+            "intent": "config_explain",
+            "target": "SFS_ENABLE",
+            "target_section": "gcode_macro SFS_ENABLE",
+            "needs_logs": False,
+            "confidence": 0.94,
+            "rationale": "The user is asking whether the previously discussed macro is used in START_PRINT.",
+        }
+    )
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "config"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            intent_router=intent_router,
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="is it used in START_PRINT?",
+            history=[
+                {"role": "user", "text": "what does SFS_ENABLE macro do?"},
+                {
+                    "role": "assistant",
+                    "text": "SFS_ENABLE enables both filament sensors. It is used by START_PRINT.",
+                },
+            ],
+            artifacts=[],
+        )
+    )
+
+    assert len(intent_router.calls) == 1
+    assert "Recent conversation:" in intent_router.calls[0]
+    assert "SFS_ENABLE" in intent_router.calls[0]
+    assert "Current user message:\nis it used in START_PRINT?" in intent_router.calls[0]
+    assert not diagnosis_graph.calls
+    assert config_graph.calls
+    state = config_graph.calls[0]["state"]
+    assert state["chat_intent"]["intent"] == "config_explain"
+    assert "SFS_ENABLE enables both filament sensors" in state["conversation_context"]
+
+
+@pytest.mark.asyncio
+async def test_chat_service_limits_history_by_configured_pairs() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    intent_router = _FakeIntentRouter(
+        {
+            "intent": "config_explain",
+            "needs_logs": False,
+            "confidence": 0.9,
+            "rationale": "Follow-up config question.",
+        }
+    )
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "config"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            intent_router=intent_router,
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+        conversation_history_pairs=1,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="is it used there?",
+            history=[
+                {"role": "user", "text": "old user turn"},
+                {"role": "assistant", "text": "old assistant turn"},
+                {"role": "user", "text": "what does SFS_ENABLE do?"},
+                {"role": "assistant", "text": "SFS_ENABLE enables both filament sensors."},
+            ],
+            artifacts=[],
+        )
+    )
+
+    context = config_graph.calls[0]["state"]["conversation_context"]
+    assert "old user turn" not in context
+    assert "old assistant turn" not in context
+    assert "what does SFS_ENABLE do?" in context
+    assert "SFS_ENABLE enables both filament sensors." in context
+
+
+@pytest.mark.asyncio
 async def test_chat_service_prefers_intent_router_over_deterministic_guess() -> None:
     sessions = InMemorySessionStore(ttl_seconds=60)
     session = sessions.create()
@@ -344,6 +450,7 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
     assert response.moonraker_reachable is True
     assert response.klipper_reachable is True
     assert response.provider_model == "stub-model"
+    assert response.conversation_history_pairs == 10
     assert response.printer_profile is not None
     assert response.printer_profile.firmware_flavor == "Kalico"
     assert "read-only-mode" in response.features

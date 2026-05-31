@@ -40,6 +40,9 @@ data_dir: /var/lib/klippyai  # Local runtime data directory. Examples: /var/lib/
 checkpoint_db: /var/lib/klippyai/checkpoints.sqlite  # SQLite checkpoint DB path. Examples: /var/lib/klippyai/checkpoints.sqlite, /srv/klippyai/checkpoints.sqlite
 enable_write_actions: false  # Reserved for future write actions. Keep this false.
 
+[chat]
+conversation_history_pairs: 10  # Previous user/assistant pairs sent with each request. Use 0 to disable. Examples: 0, 5, 10
+
 [llm]
 llm_provider: stub  # Chat backend provider. Examples: stub, openai
 openai_model: gpt-5.4-mini  # OpenAI model when provider = openai. Examples: gpt-5.4-mini, gpt-5.5

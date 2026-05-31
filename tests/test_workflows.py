@@ -9,6 +9,7 @@ from klippyai_agent.printerconfig import ConfigSnapshot, infer_config_request_ta
 from klippyai_agent.workflows import compose_config_response
 from klippyai_agent.workflows import compose_response
 from klippyai_agent.workflows import collect_config_context
+from klippyai_agent.workflows import detect_config_target
 from klippyai_agent.workflows import resolve_config_lookup
 
 
@@ -82,6 +83,23 @@ def test_compose_config_response_keeps_text_short_and_avoids_code_duplication() 
     assert "Warnings:" not in result["response_text"]
     assert "This third line should be trimmed." not in result["response_text"]
     assert "This question should not be shown" not in result["response_text"]
+
+
+def test_detect_config_target_preserves_followup_explain_intent_without_explicit_target() -> None:
+    result = detect_config_target(
+        {
+            "user_message": "DO THAT",
+            "chat_intent": {
+                "intent": "config_explain",
+                "needs_logs": False,
+                "rationale": "Follow-up to the previous macro explanation.",
+            },
+        }
+    )
+
+    assert result["feature_target"]["intent"] == "explain"
+    assert result["feature_target"]["feature"] == "generic"
+    assert result["feature_target"]["section_name"] is None
 
 
 def test_resolve_config_lookup_returns_exact_match_without_llm() -> None:

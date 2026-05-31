@@ -63,6 +63,7 @@ class DiagnosisPromptPayload:
     config_snapshot: ConfigSnapshot
     findings: list[IssueFinding]
     profile: PrinterProfile
+    conversation_context: str = ""
 
 
 @dataclass(slots=True)
@@ -72,6 +73,7 @@ class ConfigPromptPayload:
     target: ConfigRequestTarget
     profile: PrinterProfile
     runtime_snapshot: DiagnosticsSnapshot | None = None
+    conversation_context: str = ""
 
 
 class DiagnosisProvider(Protocol):
@@ -587,6 +589,7 @@ class OpenAIDiagnosisProvider:
                 "You are an expert Klipper and Moonraker diagnostics assistant. "
                 "Use supplied evidence first, do not invent printer state, keep the answer grounded, "
                 "and propose safe next steps before any invasive change. "
+                "When the current user request is a short follow-up, use the recent conversation to resolve what it refers to. "
                 "Use the detected printer profile to avoid assuming the wrong firmware flavor, probe, MCU, or addon stack. "
                 "Be extremely brief: lead with the most likely root cause in 1-2 short sentences, cite exact file paths and lines when the evidence includes them, "
                 "limit likely_causes to 1 item, limit recommended_actions to at most 2 short items, avoid background explanation, and only ask follow-up questions when the diagnosis is blocked by missing evidence. "
@@ -594,6 +597,7 @@ class OpenAIDiagnosisProvider:
             ),
             user_prompt=(
                 f"User request:\n{payload.user_message}\n\n"
+                f"Recent conversation:\n{payload.conversation_context or 'No prior conversation context.'}\n\n"
                 f"Detected printer profile:\n{payload.profile.to_prompt_block()}\n\n"
                 f"Collected context:\n{payload.snapshot.to_prompt_block()}\n\n"
                 f"Current config context:\n{payload.config_snapshot.to_prompt_block()}\n\n"
@@ -620,6 +624,7 @@ class OpenAIIntentRouterProvider:
                 "Choose generate_config when the user asks to create or draft new config. "
                 "Choose edit_existing_config when the user asks to change, remove, rename, enable, or disable existing config. "
                 "Choose general only when none of those apply. "
+                "If the request includes recent conversation, classify only the current user message, using the prior turns to resolve short follow-ups like 'do that'. "
                 "Set needs_logs true only for diagnose_issue or when the user pasted log/error context. "
                 "For macro targets, set target_section to gcode_macro MACRO_NAME, for example gcode_macro SFS_ENABLE. "
                 "Return only JSON with keys: intent, target, target_section, needs_logs, confidence, rationale."
@@ -639,6 +644,7 @@ class OpenAIConfigAssistantProvider:
         data = await self._client.complete_json(
             system_prompt=(
                 "You are an expert Klipper and Kalico configuration assistant. "
+                "When the current user request is a short follow-up, use the recent conversation to resolve what it refers to. "
                 "For locate or explain requests, answer the user's question directly from the supplied config context instead of generating a snippet. "
                 "For locate requests, lead with the exact file path and line number when present. "
                 "If an exact section is not present, say that plainly and mention close matches or additional collected files only when the evidence supports it. "
@@ -654,6 +660,7 @@ class OpenAIConfigAssistantProvider:
             ),
             user_prompt=(
                 f"User request:\n{payload.user_message}\n\n"
+                f"Recent conversation:\n{payload.conversation_context or 'No prior conversation context.'}\n\n"
                 f"Detected printer profile:\n{payload.profile.to_prompt_block()}\n\n"
                 f"Detected target:\n{payload.target.feature}\n"
                 f"Detected request mode:\n{payload.target.intent}\n"

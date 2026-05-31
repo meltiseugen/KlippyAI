@@ -107,11 +107,21 @@ class PrinterProfileSummary(BaseModel):
     summary: str = ""
 
 
+class ChatHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=8000)
+
+    @validator("text", pre=True)
+    def _normalize_text(cls, value: Any) -> str:
+        return str(value or "").strip()
+
+
 class ChatRequest(BaseModel):
     session_id: str
     thread_id: str | None = None
     message: str = Field(min_length=1, max_length=40000)
     artifacts: list[ArtifactInput] = Field(default_factory=list)
+    history: list[ChatHistoryMessage] = Field(default_factory=list, max_items=100)
 
 
 class ChatResponse(BaseModel):
@@ -130,6 +140,7 @@ class BootstrapResponse(BaseModel):
     session_id: str
     provider: str
     provider_model: str | None = None
+    conversation_history_pairs: int = 10
     moonraker_reachable: bool
     klipper_reachable: bool
     expires_at: datetime

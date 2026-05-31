@@ -373,6 +373,11 @@ You can also manually edit these sections in `klippyai.cfg`:
 - `[printer_identity]`
 - `[printer_capabilities]`
 - `[config_context]`
+- `[chat]`
+
+For follow-up questions, `conversation_history_pairs` controls how many previous
+user/assistant pairs from the current chat are sent with each request. The
+default is `10`; set it to `0` to disable conversation context.
 
 If this host still has an older `[printer_geometry]` section in `klippyai.cfg`, remove that section before restarting `klippyai-agent`.
 

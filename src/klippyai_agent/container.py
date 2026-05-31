@@ -83,6 +83,7 @@ def build_container(settings: Settings) -> AppContainer:
         workflow_context=workflow_context,
         sessions=sessions,
         provider_model=settings.openai_model if diagnosis_provider.name == "openai" else None,
+        conversation_history_pairs=settings.conversation_history_pairs,
     )
     return AppContainer(
         settings=settings,

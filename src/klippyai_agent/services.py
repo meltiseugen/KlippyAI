@@ -11,6 +11,7 @@ from klippyai_agent.schemas import (
     BootstrapResponse,
     ChatRequest,
     ChatResponse,
+    ChatHistoryMessage,
     ConfigProposal,
     IssueFinding,
     PatchProposal,
@@ -33,6 +34,7 @@ _LOG_LINE_PATTERN = re.compile(
     r"|!! .+"
     r")"
 )
+_MAX_HISTORY_CHARS_PER_MESSAGE = 1400
 
 
 @dataclass(slots=True)
@@ -44,6 +46,7 @@ class ChatService:
     workflow_context: WorkflowContext
     sessions: InMemorySessionStore
     provider_model: str | None = None
+    conversation_history_pairs: int = 10
 
     async def create_ui_session(self) -> UiSessionResponse:
         session = self.sessions.create()
@@ -75,6 +78,7 @@ class ChatService:
             session_id=session_id,
             provider=self.provider_name,
             provider_model=self.provider_model,
+            conversation_history_pairs=self.conversation_history_pairs,
             moonraker_reachable=moonraker_reachable,
             klipper_reachable=klipper_reachable,
             expires_at=session.expires_at,
@@ -105,13 +109,19 @@ class ChatService:
             raise ValueError("Invalid or expired session.")
 
         thread_id = payload.thread_id or str(uuid4())
-        chat_intent = await self._classify_chat_intent(payload.message)
+        conversation_context = _format_conversation_context(
+            payload.history,
+            max_pairs=self.conversation_history_pairs,
+        )
+        classification_message = _build_contextual_classification_message(payload.message, conversation_context)
+        chat_intent = await self._classify_chat_intent(payload.message, classification_message=classification_message)
         route = route_for_intent(chat_intent)
         request_artifacts = _build_chat_artifacts(payload.message, route, payload.artifacts)
         state = {
             "session_id": payload.session_id,
             "thread_id": thread_id,
             "user_message": payload.message,
+            "conversation_context": conversation_context,
             "artifacts": [artifact.model_dump() for artifact in request_artifacts],
             "chat_intent": chat_intent.model_dump(),
         }
@@ -165,7 +175,7 @@ class ChatService:
             moonraker_reachable=result.get("moonraker_reachable", False),
         )
 
-    async def _classify_chat_intent(self, message: str) -> ChatIntentOutput:
+    async def _classify_chat_intent(self, message: str, *, classification_message: str | None = None) -> ChatIntentOutput:
         deterministic = classify_deterministic_intent(message)
 
         intent_router = getattr(self.workflow_context, "intent_router", None)
@@ -173,7 +183,7 @@ class ChatService:
             return deterministic
 
         try:
-            routed = ChatIntentOutput.model_validate(await intent_router.classify(message))
+            routed = ChatIntentOutput.model_validate(await intent_router.classify(classification_message or message))
         except Exception:
             logger.exception("Intent routing failed; falling back to deterministic route.")
             return deterministic
@@ -193,6 +203,36 @@ def _build_chat_artifacts(
     if inline_artifact is not None:
         artifacts.append(inline_artifact)
     return artifacts
+
+
+def _format_conversation_context(history: list[ChatHistoryMessage], *, max_pairs: int) -> str:
+    max_messages = max(0, max_pairs) * 2
+    if max_messages <= 0:
+        return ""
+
+    lines: list[str] = []
+    for item in history[-max_messages:]:
+        text = item.text.strip()
+        if not text:
+            continue
+        if len(text) > _MAX_HISTORY_CHARS_PER_MESSAGE:
+            text = f"{text[:_MAX_HISTORY_CHARS_PER_MESSAGE]}\n...[truncated]..."
+        role = "User" if item.role == "user" else "KlippyAI"
+        lines.append(f"{role}: {text}")
+    return "\n\n".join(lines)
+
+
+def _build_contextual_classification_message(message: str, conversation_context: str) -> str:
+    if not conversation_context:
+        return message
+    return (
+        "Recent conversation:\n"
+        f"{conversation_context}\n\n"
+        "Current user message:\n"
+        f"{message}\n\n"
+        "Classify the current user message. Use the recent conversation only to resolve follow-ups like "
+        "'do that', 'yes', 'show me that', or 'continue'."
+    )
 
 
 def _infer_inline_question_artifact(message: str, route: str) -> ArtifactInput | None:

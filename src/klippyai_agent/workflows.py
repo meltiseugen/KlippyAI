@@ -46,6 +46,7 @@ class DiagnosisState(TypedDict, total=False):
     session_id: str
     thread_id: str
     user_message: str
+    conversation_context: str
     artifacts: list[dict[str, Any]]
     snapshot: dict[str, Any]
     config_snapshot: dict[str, Any]
@@ -70,6 +71,7 @@ class ConfigState(TypedDict, total=False):
     session_id: str
     thread_id: str
     user_message: str
+    conversation_context: str
     artifacts: list[dict[str, Any]]
     feature_target: dict[str, Any]
     config_snapshot: dict[str, Any]
@@ -139,6 +141,7 @@ async def call_llm(
     config_snapshot = ConfigSnapshot.from_state(state.get("config_snapshot", {}))
     payload = DiagnosisPromptPayload(
         user_message=state["user_message"],
+        conversation_context=state.get("conversation_context", ""),
         snapshot=snapshot,
         config_snapshot=config_snapshot,
         findings=findings,
@@ -200,7 +203,17 @@ def _config_target_from_chat_intent(state: ConfigState) -> ConfigRequestTarget |
     else:
         target_text = str(chat_intent.get("target") or "").strip()
         if not target_text:
-            return None
+            intent_map = {
+                "config_lookup": "locate",
+                "config_explain": "explain",
+                "edit_existing_config": "edit",
+            }
+            return ConfigRequestTarget(
+                feature="generic",
+                rationale=chat_intent.get("rationale") or "Follow-up config request with no explicit target.",
+                intent=intent_map.get(intent_name, "locate"),
+                section_name=None,
+            )
         prompt = (
             f"Where is {target_text} macro defined?"
             if _looks_like_macro_target(target_text)
@@ -332,6 +345,7 @@ async def call_config_llm(
     )
     payload = ConfigPromptPayload(
         user_message=state["user_message"],
+        conversation_context=state.get("conversation_context", ""),
         snapshot=snapshot,
         target=target,
         runtime_snapshot=runtime_snapshot,

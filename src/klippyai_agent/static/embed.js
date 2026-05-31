@@ -32,6 +32,7 @@ let appState = {
 };
 let isLoading = false;
 let loadingConversationId = null;
+let conversationHistoryPairs = 10;
 
 function resolveApiBase(configuredApiBase) {
   const configured = String(configuredApiBase || "").trim();
@@ -395,6 +396,33 @@ function deleteConversation(conversationId) {
   persistState();
 }
 
+function normalizeHistoryPairLimit(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 10;
+  }
+  return Math.min(parsed, 50);
+}
+
+function buildRequestHistory(entries, pairLimit = conversationHistoryPairs) {
+  const messageLimit = normalizeHistoryPairLimit(pairLimit) * 2;
+  if (messageLimit <= 0) {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => {
+      const role = String(entry.role || "").trim();
+      const text = String(entry.text || "").trim();
+      return (role === "user" || role === "assistant") && text && text !== introMessage;
+    })
+    .slice(-messageLimit)
+    .map((entry) => ({
+      role: entry.role,
+      text: String(entry.text || "").slice(0, 8000),
+    }));
+}
+
 function scrollMessagesToBottom() {
   if (!messages) {
     return;
@@ -638,6 +666,7 @@ async function bootstrap() {
   }
 
   const payload = await response.json();
+  conversationHistoryPairs = normalizeHistoryPairLimit(payload.conversation_history_pairs);
   setText(providerBadge, formatBadgeStatus("Provider", payload.provider));
   setText(modelBadge, formatBadgeStatus("Model", payload.provider_model));
   updateReachabilityBadge(moonrakerBadge, "Moonraker", Boolean(payload.moonraker_reachable));
@@ -689,6 +718,7 @@ async function sendMessage() {
     session_id: activeSessionId,
     message,
     artifacts: [],
+    history: buildRequestHistory(conversation.messages),
   };
 
   if (conversation.threadId) {

@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     printer_data_root: Path = Path("/home/pi/printer_data")
     managed_config_dir_name: str = "klippyai"
     session_ttl_seconds: int = 3600
+    conversation_history_pairs: int = Field(default=10, ge=0, le=50)
     collect_host_logs: bool = True
     logs_dir_path: Path = Path("logs")
     agent_log_file_name: str = "klippyai.log"

@@ -833,6 +833,9 @@ data_dir: $KLIPPYAI_DATA_DIR  # Local runtime data directory. Examples: /var/lib
 checkpoint_db: $KLIPPYAI_CHECKPOINT_DB  # SQLite checkpoint DB path. Examples: /var/lib/klippyai/checkpoints.sqlite, /srv/klippyai/checkpoints.sqlite
 enable_write_actions: $KLIPPYAI_ENABLE_WRITE_ACTIONS  # Reserved for future write actions. Keep this false.
 
+[chat]
+conversation_history_pairs: 10  # Previous user/assistant pairs sent with each request. Use 0 to disable. Examples: 0, 5, 10
+
 [llm]
 llm_provider: $KLIPPYAI_LLM_PROVIDER  # Chat backend provider. Examples: stub, openai
 openai_model: $KLIPPYAI_OPENAI_MODEL  # OpenAI model when provider = openai. Examples: gpt-5.4-mini, gpt-5.5

@@ -27,6 +27,8 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
         "data_dir: /var/lib/klippyai  # Data dir\n"
         "checkpoint_db: /var/lib/klippyai/checkpoints.sqlite  # Checkpoint db\n"
         "enable_write_actions: true  # Should still coerce false\n\n"
+        "[chat]\n"
+        "conversation_history_pairs: 7  # Previous chat pairs\n\n"
         "[logs]\n"
         "logs_dir_path: /home/pi/printer_data/logs  # Log dir\n"
         "agent_log_file_name: klippyai.log  # Agent log name\n"
@@ -53,6 +55,7 @@ def test_settings_load_values_from_klippyai_cfg(monkeypatch, tmp_path: Path) -> 
     assert settings.public_base_url == "http://127.0.0.1:9911"
     assert settings.moonraker_url == "http://127.0.0.1:7125"
     assert settings.enable_write_actions is False
+    assert settings.conversation_history_pairs == 7
     assert settings.agent_log_level == "DEBUG"
     assert settings.agent_log_path() == Path("/home/pi/printer_data/logs/klippyai.log")
     assert settings.printer_data_root == Path("/home/pi/printer_data")
