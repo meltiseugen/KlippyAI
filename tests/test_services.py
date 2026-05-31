@@ -25,6 +25,21 @@ class _FakeCollector:
     async def ping(self) -> bool:
         return True
 
+    async def ping_printer(self) -> bool:
+        return True
+
+
+class _FakeIntentRouter:
+    name = "fake"
+
+    def __init__(self, result: dict[str, object]) -> None:
+        self.result = result
+        self.calls: list[str] = []
+
+    async def classify(self, message: str) -> dict[str, object]:
+        self.calls.append(message)
+        return self.result
+
 
 @pytest.mark.asyncio
 async def test_chat_service_routes_config_request_to_config_graph() -> None:
@@ -73,6 +88,8 @@ async def test_chat_service_routes_config_request_to_config_graph() -> None:
     assert len(response.config_proposals) == 1
     assert not diagnosis_graph.calls
     assert config_graph.calls
+    assert config_graph.calls[0]["state"]["chat_intent"]["intent"] == "generate_config"
+    assert config_graph.calls[0]["state"]["chat_intent"]["needs_logs"] is False
 
 
 @pytest.mark.asyncio
@@ -111,6 +128,117 @@ async def test_chat_service_routes_config_lookup_request_to_config_graph() -> No
     assert "extruder" in response.response
     assert not diagnosis_graph.calls
     assert config_graph.calls
+    assert config_graph.calls[0]["state"]["chat_intent"]["intent"] == "config_lookup"
+
+
+@pytest.mark.asyncio
+async def test_chat_service_routes_macro_name_correction_to_config_graph() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "SFS_ENABLE is defined in filament.cfg:1."})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    response = await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="I mean SFS_ENABLE",
+            artifacts=[],
+        )
+    )
+
+    assert "SFS_ENABLE" in response.response
+    assert not diagnosis_graph.calls
+    assert config_graph.calls
+    assert config_graph.calls[0]["state"]["chat_intent"]["intent"] == "config_lookup"
+
+
+@pytest.mark.asyncio
+async def test_chat_service_routes_problem_language_to_diagnostics_with_logs_enabled() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "config"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="Why is SFS_ENABLE failing?",
+            artifacts=[],
+        )
+    )
+
+    assert diagnosis_graph.calls
+    assert not config_graph.calls
+    assert diagnosis_graph.calls[0]["state"]["chat_intent"]["intent"] == "diagnose_issue"
+    assert diagnosis_graph.calls[0]["state"]["chat_intent"]["needs_logs"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_service_uses_llm_intent_router_for_ambiguous_requests() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    intent_router = _FakeIntentRouter(
+        {
+            "intent": "config_explain",
+            "target": "SFS_ENABLE",
+            "target_section": "gcode_macro SFS_ENABLE",
+            "needs_logs": False,
+            "confidence": 0.91,
+            "rationale": "The user asked to understand a macro.",
+        }
+    )
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "config"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            intent_router=intent_router,
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="Can you help me with SFS_ENABLE?",
+            artifacts=[],
+        )
+    )
+
+    assert intent_router.calls == ["Can you help me with SFS_ENABLE?"]
+    assert not diagnosis_graph.calls
+    assert config_graph.calls
+    assert config_graph.calls[0]["state"]["chat_intent"]["intent"] == "config_explain"
 
 
 @pytest.mark.asyncio
@@ -158,6 +286,7 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
     session = sessions.create()
     service = ChatService(
         provider_name="stub",
+        provider_model="stub-model",
         root_path="",
         diagnosis_graph=_FakeGraph("diagnostics", {}),
         config_graph=_FakeGraph("config", {}),
@@ -171,6 +300,8 @@ async def test_bootstrap_includes_printer_profile_summary() -> None:
     response = await service.bootstrap(session.session_id)
 
     assert response.moonraker_reachable is True
+    assert response.klipper_reachable is True
+    assert response.provider_model == "stub-model"
     assert response.printer_profile is not None
     assert response.printer_profile.firmware_flavor == "Kalico"
     assert "read-only-mode" in response.features

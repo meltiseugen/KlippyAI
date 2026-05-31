@@ -8,6 +8,7 @@ import httpx
 from pydantic import Field, validator
 
 from klippyai_agent.diagnostics import DiagnosticsSnapshot
+from klippyai_agent.intent import ChatIntentOutput, IntentRouterProvider, classify_deterministic_intent
 from klippyai_agent.model_compat import BaseModel
 from klippyai_agent.printerconfig import ConfigRequestTarget, ConfigSnapshot
 from klippyai_agent.printerprofile import PrinterProfile
@@ -85,6 +86,13 @@ class ConfigAssistantProvider(Protocol):
 
     async def propose(self, payload: ConfigPromptPayload) -> ConfigAssistantOutput:
         ...
+
+
+class StubIntentRouterProvider:
+    name = "stub"
+
+    async def classify(self, message: str) -> ChatIntentOutput:
+        return classify_deterministic_intent(message)
 
 
 class StubDiagnosisProvider:
@@ -583,6 +591,31 @@ class OpenAIDiagnosisProvider:
         return DiagnosisLLMOutput.model_validate(_with_required_summary(data, "No diagnosis was returned."))
 
 
+class OpenAIIntentRouterProvider:
+    name = "openai"
+
+    def __init__(self, model: str, api_key: str | None) -> None:
+        self._client = OpenAIJsonClient(model=model, api_key=api_key)
+
+    async def classify(self, message: str) -> ChatIntentOutput:
+        data = await self._client.complete_json(
+            system_prompt=(
+                "You classify short KlippyAI user requests into exactly one intent. "
+                "Choose config_lookup for finding/showing where an existing config section or macro is defined. "
+                "Choose config_explain for explaining what an existing config section or macro does, where it is used, or what calls it. "
+                "Choose diagnose_issue only when the user reports a failure, error, shutdown, broken behavior, or asks why something is not working. "
+                "Choose generate_config when the user asks to create or draft new config. "
+                "Choose edit_existing_config when the user asks to change, remove, rename, enable, or disable existing config. "
+                "Choose general only when none of those apply. "
+                "Set needs_logs true only for diagnose_issue or when the user pasted log/error context. "
+                "For macro targets, set target_section to gcode_macro MACRO_NAME, for example gcode_macro SFS_ENABLE. "
+                "Return only JSON with keys: intent, target, target_section, needs_logs, confidence, rationale."
+            ),
+            user_prompt=f"User request:\n{message}\n\nClassify this request.",
+        )
+        return ChatIntentOutput.model_validate(data)
+
+
 class OpenAIConfigAssistantProvider:
     name = "openai"
 
@@ -605,6 +638,7 @@ class OpenAIConfigAssistantProvider:
                 f"User request:\n{payload.user_message}\n\n"
                 f"Detected printer profile:\n{payload.profile.to_prompt_block()}\n\n"
                 f"Detected target:\n{payload.target.feature}\n"
+                f"Detected request mode:\n{payload.target.intent}\n"
                 f"Detection rationale:\n{payload.target.rationale}\n\n"
                 f"Collected runtime context:\n{payload.runtime_snapshot.to_prompt_block() if payload.runtime_snapshot else 'No runtime context collected.'}\n\n"
                 f"Current config context:\n{payload.snapshot.to_prompt_block()}\n\n"
@@ -738,3 +772,14 @@ def build_config_provider(settings: Settings) -> ConfigAssistantProvider:
             api_key=api_key,
         )
     return StubConfigAssistantProvider()
+
+
+def build_intent_router(settings: Settings) -> IntentRouterProvider:
+    provider = settings.llm_provider.lower().strip()
+    if provider == "openai":
+        api_key = settings.openai_api_key.get_secret_value() if settings.openai_api_key else None
+        return OpenAIIntentRouterProvider(
+            model=settings.openai_model,
+            api_key=api_key,
+        )
+    return StubIntentRouterProvider()

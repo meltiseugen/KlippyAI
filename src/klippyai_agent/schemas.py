@@ -129,7 +129,9 @@ class ChatResponse(BaseModel):
 class BootstrapResponse(BaseModel):
     session_id: str
     provider: str
+    provider_model: str | None = None
     moonraker_reachable: bool
+    klipper_reachable: bool
     expires_at: datetime
     features: list[str]
     printer_profile: PrinterProfileSummary | None = None

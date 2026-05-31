@@ -178,7 +178,7 @@ def test_resolve_config_lookup_can_return_section_body_without_llm() -> None:
 
 
 @pytest.mark.asyncio
-async def test_collect_config_context_includes_automatic_host_logs(tmp_path: Path) -> None:
+async def test_collect_config_context_skips_host_logs_for_config_lookup_by_default(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"
     logs_dir = tmp_path / "printer_data" / "logs"
     config_dir.mkdir(parents=True)
@@ -196,12 +196,11 @@ async def test_collect_config_context_includes_automatic_host_logs(tmp_path: Pat
     result = await collect_config_context({}, runtime)
 
     assert result["config_snapshot"]["documents"]
-    assert result["runtime_snapshot"]["artifacts"]
-    assert result["runtime_snapshot"]["artifacts"][0]["label"] == "klippy.log"
+    assert result["runtime_snapshot"]["artifacts"] == []
 
 
 @pytest.mark.asyncio
-async def test_collect_config_context_merges_request_artifacts_with_host_logs(tmp_path: Path) -> None:
+async def test_collect_config_context_merges_request_artifacts_with_host_logs_when_needed(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"
     logs_dir = tmp_path / "printer_data" / "logs"
     config_dir.mkdir(parents=True)
@@ -218,6 +217,10 @@ async def test_collect_config_context_merges_request_artifacts_with_host_logs(tm
 
     result = await collect_config_context(
         {
+            "chat_intent": {
+                "intent": "diagnose_issue",
+                "needs_logs": True,
+            },
             "artifacts": [
                 {
                     "kind": "config_snippet",

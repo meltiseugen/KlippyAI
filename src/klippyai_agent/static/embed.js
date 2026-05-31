@@ -4,7 +4,7 @@ const messages = document.getElementById("messages");
 const historyList = document.getElementById("history-list");
 const providerBadge = document.getElementById("provider-badge");
 const moonrakerBadge = document.getElementById("moonraker-badge");
-const profileBadge = document.getElementById("profile-badge");
+const klipperBadge = document.getElementById("klipper-badge");
 const sendButton = document.getElementById("send-button");
 const newChatButton = document.getElementById("new-chat-button");
 const composerStatus = document.getElementById("composer-status");
@@ -394,7 +394,7 @@ function buildMessageElement(entry, options = {}) {
   const content = fragment.querySelector(".message-body");
 
   article.classList.add(entry.role);
-  meta.textContent = entry.role;
+  meta.textContent = entry.role === "user" ? "You" : "KlippyAI";
   content.textContent = entry.text;
 
   if (options.pending) {
@@ -517,25 +517,16 @@ async function ensureSessionId(forceRefresh = false) {
   return conversation.sessionId;
 }
 
-function summarizeProfile(profile) {
-  if (!profile) {
-    return "Profile: unavailable";
-  }
-  if (profile.summary) {
-    return `Profile: ${profile.summary}`;
-  }
-  const parts = [];
-  if (profile.firmware_flavor) {
-    parts.push(profile.firmware_flavor);
-  }
-  if (profile.canbus_enabled) {
-    parts.push("CAN");
-  }
-  const visibleAddons = (profile.addons || []).filter((addon) => addon?.name?.toLowerCase() !== "sonar");
-  if (visibleAddons.length) {
-    parts.push(visibleAddons.slice(0, 2).map((addon) => addon.name).join(", "));
-  }
-  return parts.length ? `Profile: ${parts.join(" | ")}` : "Profile: unavailable";
+function formatProviderStatus(provider, model) {
+  const providerLabel = String(provider || "unavailable").trim() || "unavailable";
+  const modelLabel = String(model || "").trim();
+  return modelLabel ? `Provider: ${providerLabel} | Model: ${modelLabel}` : `Provider: ${providerLabel}`;
+}
+
+function updateReachabilityBadge(badge, label, reachable) {
+  badge.textContent = reachable ? `${label}: reachable` : `${label}: unavailable`;
+  badge.classList.remove("ok", "warn");
+  badge.classList.add(reachable ? "ok" : "warn");
 }
 
 async function bootstrap() {
@@ -552,12 +543,9 @@ async function bootstrap() {
   }
 
   const payload = await response.json();
-  providerBadge.textContent = `Provider: ${payload.provider}`;
-  moonrakerBadge.textContent = payload.moonraker_reachable
-    ? "Moonraker: reachable"
-    : "Moonraker: unavailable";
-  moonrakerBadge.classList.add(payload.moonraker_reachable ? "ok" : "warn");
-  profileBadge.textContent = summarizeProfile(payload.printer_profile);
+  providerBadge.textContent = formatProviderStatus(payload.provider, payload.provider_model);
+  updateReachabilityBadge(moonrakerBadge, "Moonraker", Boolean(payload.moonraker_reachable));
+  updateReachabilityBadge(klipperBadge, "Klipper", Boolean(payload.klipper_reachable));
   persistState();
 }
 

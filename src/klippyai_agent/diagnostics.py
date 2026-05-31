@@ -52,7 +52,20 @@ class DiagnosticsCollector:
     async def ping(self) -> bool:
         return await self._moonraker.ping()
 
-    async def collect(self, artifacts: list[ArtifactInput]) -> DiagnosticsSnapshot:
+    async def ping_printer(self) -> bool:
+        try:
+            await self._moonraker.get_printer_info()
+        except MoonrakerError:
+            return False
+        return True
+
+    async def collect(
+        self,
+        artifacts: list[ArtifactInput],
+        *,
+        include_host_logs: bool = True,
+        include_host_system: bool = True,
+    ) -> DiagnosticsSnapshot:
         notes: list[str] = []
         moonraker_info: dict[str, Any] | None = None
         reachable = False
@@ -64,12 +77,12 @@ class DiagnosticsCollector:
         except MoonrakerError as exc:
             notes.append(str(exc))
 
-        if self._host_logs is not None:
+        if include_host_logs and self._host_logs is not None:
             host_artifacts, host_notes = self._host_logs.collect()
             snapshot_artifacts.extend(host_artifacts)
             notes.extend(host_notes)
 
-        if self._host_system is not None:
+        if include_host_system and self._host_system is not None:
             system_artifacts, system_notes = await asyncio.to_thread(self._host_system.collect)
             snapshot_artifacts.extend(system_artifacts)
             notes.extend(system_notes)

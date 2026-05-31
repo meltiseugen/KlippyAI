@@ -5,7 +5,7 @@ import logging
 import re
 from uuid import uuid4
 
-from klippyai_agent.printerconfig import looks_like_config_request
+from klippyai_agent.intent import ChatIntentOutput, classify_deterministic_intent, route_for_intent
 from klippyai_agent.schemas import (
     ArtifactInput,
     BootstrapResponse,
@@ -43,6 +43,7 @@ class ChatService:
     config_graph: object
     workflow_context: WorkflowContext
     sessions: InMemorySessionStore
+    provider_model: str | None = None
 
     async def create_ui_session(self) -> UiSessionResponse:
         session = self.sessions.create()
@@ -60,16 +61,22 @@ class ChatService:
             raise ValueError("Invalid or expired session.")
 
         moonraker_reachable = await self.workflow_context.collector.ping()
+        klipper_reachable = await self.workflow_context.collector.ping_printer() if moonraker_reachable else False
         logger.info(
-            "Bootstrap session_id=%s moonraker_reachable=%s profile=%s",
+            "Bootstrap session_id=%s provider=%s provider_model=%s moonraker_reachable=%s klipper_reachable=%s profile=%s",
             session_id,
+            self.provider_name,
+            self.provider_model or "unavailable",
             moonraker_reachable,
+            klipper_reachable,
             self.workflow_context.profile.summary_label() or "unavailable",
         )
         return BootstrapResponse(
             session_id=session_id,
             provider=self.provider_name,
+            provider_model=self.provider_model,
             moonraker_reachable=moonraker_reachable,
+            klipper_reachable=klipper_reachable,
             expires_at=session.expires_at,
             features=[
                 "diagnostics",
@@ -85,6 +92,8 @@ class ChatService:
                 "local-workflows",
                 "conversation-history",
                 "new-chat",
+                "intent-routing",
+                "context-gated-flows",
             ],
             printer_profile=PrinterProfileSummary.model_validate(self.workflow_context.profile.to_summary()),
         )
@@ -96,13 +105,15 @@ class ChatService:
             raise ValueError("Invalid or expired session.")
 
         thread_id = payload.thread_id or str(uuid4())
-        route = "config" if looks_like_config_request(payload.message) else "diagnostics"
+        chat_intent = await self._classify_chat_intent(payload.message)
+        route = route_for_intent(chat_intent)
         request_artifacts = _build_chat_artifacts(payload.message, route, payload.artifacts)
         state = {
             "session_id": payload.session_id,
             "thread_id": thread_id,
             "user_message": payload.message,
             "artifacts": [artifact.model_dump() for artifact in request_artifacts],
+            "chat_intent": chat_intent.model_dump(),
         }
         graph = self.config_graph if route == "config" else self.diagnosis_graph
         config = {"configurable": {"thread_id": f"{route}:{thread_id}"}}
@@ -153,6 +164,25 @@ class ChatService:
             provider=self.provider_name,
             moonraker_reachable=result.get("moonraker_reachable", False),
         )
+
+    async def _classify_chat_intent(self, message: str) -> ChatIntentOutput:
+        deterministic = classify_deterministic_intent(message)
+        if deterministic.confidence >= 0.8:
+            return deterministic
+
+        intent_router = getattr(self.workflow_context, "intent_router", None)
+        if intent_router is None:
+            return deterministic
+
+        try:
+            routed = ChatIntentOutput.model_validate(await intent_router.classify(message))
+        except Exception:
+            logger.exception("Intent routing failed; falling back to deterministic route.")
+            return deterministic
+
+        if routed.confidence <= 0:
+            return deterministic
+        return routed
 
 
 def _build_chat_artifacts(

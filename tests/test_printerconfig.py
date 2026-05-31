@@ -250,6 +250,28 @@ def test_config_request_detection_handles_lookup_queries() -> None:
     assert direct_target.section_name == "fan"
 
 
+def test_config_request_detection_treats_bare_macro_name_as_exact_lookup() -> None:
+    message = "Where is my sfs_enable macro defined?"
+
+    assert looks_like_config_request(message) is True
+    target = infer_config_request_target(message)
+
+    assert target.feature == "macro"
+    assert target.intent == "locate"
+    assert target.section_name == "gcode_macro SFS_ENABLE"
+
+
+def test_config_request_detection_treats_macro_questions_as_explain_intent() -> None:
+    message = "What does SFS_ENABLE do?"
+
+    assert looks_like_config_request(message) is True
+    target = infer_config_request_target(message)
+
+    assert target.feature == "macro"
+    assert target.intent == "explain"
+    assert target.section_name == "gcode_macro SFS_ENABLE"
+
+
 def test_build_config_lookup_response_returns_exact_section_locations(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"
     extras_dir = config_dir / "extras"
@@ -274,4 +296,50 @@ def test_build_config_lookup_response_returns_exact_section_locations(tmp_path: 
     assert "Matches:" in response_text
     assert "[extruder]" in response_text
     assert "toolhead.cfg:1" in response_text
+    assert not next_actions
+
+
+def test_build_config_lookup_response_returns_exact_macro_definition_file(tmp_path: Path) -> None:
+    config_dir = tmp_path / "printer_data" / "config"
+    klippy_dir = config_dir / "Klippy"
+    klippy_dir.mkdir(parents=True)
+
+    (config_dir / "printer.cfg").write_text(
+        "[include Klippy/filament.cfg]\n"
+        "[include macros.cfg]\n\n"
+        "[printer]\n"
+        "kinematics: cartesian\n",
+        encoding="utf-8",
+    )
+    (klippy_dir / "filament.cfg").write_text(
+        "[gcode_macro SFS_ENABLE]\n"
+        "description: Enable smart filament sensor checks\n"
+        "gcode:\n"
+        "  SET_FILAMENT_SENSOR SENSOR=switch_sensor ENABLE=1\n",
+        encoding="utf-8",
+    )
+    (config_dir / "macros.cfg").write_text(
+        "[gcode_macro PRINT_START]\n"
+        "gcode:\n"
+        "  G28\n"
+        "  SFS_ENABLE\n",
+        encoding="utf-8",
+    )
+
+    snapshot = ConfigCollector(tmp_path / "printer_data").collect()
+    target = infer_config_request_target("Where is my sfs_enable macro defined?")
+    response_text, next_actions = build_config_lookup_response(snapshot, target)
+
+    assert response_text.startswith("SFS_ENABLE is defined in ")
+    assert "Klippy" in response_text
+    assert "filament.cfg:1" in response_text
+    assert "[gcode_macro SFS_ENABLE]" in response_text
+    assert "Used by:" in response_text
+    assert "[gcode_macro PRINT_START]" in response_text
+    assert "macros.cfg:4" in response_text
+    assert "Description: Enable smart filament sensor checks" in response_text
+    assert "enables filament sensor `switch_sensor`" in response_text
+    assert "Most likely:" not in response_text
+    assert "Fix:" not in response_text
+    assert "Matches:" not in response_text
     assert not next_actions

@@ -10,11 +10,6 @@
     <div class="app-shell">
       <aside id="shell-sidebar" class="sidebar">
         <div class="brand-lockup">
-          <span class="brand-mark" aria-hidden="true">
-            <span class="brand-mark-bar bar-a"></span>
-            <span class="brand-mark-bar bar-b"></span>
-            <span class="brand-mark-bar bar-c"></span>
-          </span>
           <span class="brand-copy">
             <strong class="brand-title">KlippyAI</strong>
             <span class="brand-label">Diagnostics Assistant</span>
@@ -23,10 +18,11 @@
 
         <section class="sidebar-history">
           <div class="sidebar-history-header">
-            <div>
-              <p class="eyebrow">Chat History</p>
-            </div>
-            <button id="new-chat-button" class="secondary-button" type="button">New chat</button>
+            <h2 class="sidebar-history-title">Chat History</h2>
+            <button id="new-chat-button" class="secondary-button history-action-button" type="button">
+              <span class="history-action-icon" aria-hidden="true"></span>
+              <span>New chat</span>
+            </button>
           </div>
 
           <div id="history-list" class="history-list"></div>
@@ -46,7 +42,7 @@
             <div class="status-panel topbar-status-panel">
               <span id="provider-badge" class="badge">Provider: loading</span>
               <span id="moonraker-badge" class="badge muted">Moonraker: checking</span>
-              <span id="profile-badge" class="badge muted">Profile: loading</span>
+              <span id="klipper-badge" class="badge muted">Klipper: checking</span>
             </div>
           </div>
         </header>
@@ -55,7 +51,7 @@
           <div class="conversation-panel">
             <section id="messages" class="messages">
               <article class="message assistant">
-                <div class="message-meta">assistant</div>
+                <div class="message-meta">KlippyAI</div>
                 <div class="message-body">
                   Ask what failed or ask for config help like "where is my extruder defined?". Current host logs are collected automatically, and you can paste extra config or log text directly into the question field.
                 </div>

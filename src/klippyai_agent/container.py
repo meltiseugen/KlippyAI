@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from klippyai_agent.diagnostics import DiagnosticsCollector, RuleEngine
 from klippyai_agent.hostlogs import HostLogCollector
 from klippyai_agent.hostsystem import HostSystemCollector, SystemCommandRunner
-from klippyai_agent.llm import build_config_provider, build_diagnosis_provider
+from klippyai_agent.llm import build_config_provider, build_diagnosis_provider, build_intent_router
 from klippyai_agent.moonraker import MoonrakerClient
 from klippyai_agent.printerconfig import ConfigCollector
 from klippyai_agent.printerprofile import build_profile_from_settings
@@ -55,6 +55,7 @@ def build_container(settings: Settings) -> AppContainer:
     rules = RuleEngine()
     diagnosis_provider = build_diagnosis_provider(settings)
     config_provider = build_config_provider(settings)
+    intent_router = build_intent_router(settings)
     config_collector = ConfigCollector(
         settings.printer_data_root,
         root_config_name=settings.config_root_file,
@@ -65,6 +66,7 @@ def build_container(settings: Settings) -> AppContainer:
         collector=collector,
         rules=rules,
         llm=diagnosis_provider,
+        intent_router=intent_router,
         config_collector=config_collector,
         config_llm=config_provider,
         host_logs=host_logs,
@@ -80,6 +82,7 @@ def build_container(settings: Settings) -> AppContainer:
         config_graph=config_graph,
         workflow_context=workflow_context,
         sessions=sessions,
+        provider_model=settings.openai_model if diagnosis_provider.name == "openai" else None,
     )
     return AppContainer(
         settings=settings,

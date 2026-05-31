@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 
 from klippyai_agent.diagnostics import DiagnosticsCollector, DiagnosticsSnapshot, RuleEngine
 from klippyai_agent.hostlogs import HostLogCollector
+from klippyai_agent.intent import IntentRouterProvider
 from klippyai_agent.llm import (
     ConfigAssistantProvider,
     ConfigPromptPayload,
@@ -29,6 +30,7 @@ class WorkflowContext:
     collector: DiagnosticsCollector
     rules: RuleEngine
     llm: DiagnosisProvider
+    intent_router: IntentRouterProvider | None
     config_collector: ConfigCollector
     config_llm: ConfigAssistantProvider
     host_logs: HostLogCollector | None
@@ -53,6 +55,7 @@ class DiagnosisState(TypedDict, total=False):
     next_actions: list[str]
     moonraker_reachable: bool
     patch_proposals: list[dict[str, Any]]
+    chat_intent: dict[str, Any]
 
 
 class ApplyChangeState(TypedDict, total=False):
@@ -75,6 +78,7 @@ class ConfigState(TypedDict, total=False):
     response_text: str
     next_actions: list[str]
     config_proposals: list[dict[str, Any]]
+    chat_intent: dict[str, Any]
 
 
 async def collect_context(
@@ -82,7 +86,13 @@ async def collect_context(
     runtime: WorkflowRuntime,
 ) -> DiagnosisState:
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
-    snapshot = await runtime.context.collector.collect(input_artifacts)
+    chat_intent = state.get("chat_intent", {})
+    include_runtime_context = bool(chat_intent.get("needs_logs", True))
+    snapshot = await runtime.context.collector.collect(
+        input_artifacts,
+        include_host_logs=include_runtime_context,
+        include_host_system=include_runtime_context,
+    )
     config_snapshot = runtime.context.config_collector.collect()
     return {
         "artifacts": [artifact.model_dump() for artifact in input_artifacts],
@@ -178,8 +188,53 @@ def compose_response(state: DiagnosisState) -> DiagnosisState:
     }
 
 
+def _config_target_from_chat_intent(state: ConfigState) -> ConfigRequestTarget | None:
+    chat_intent = state.get("chat_intent", {})
+    intent_name = str(chat_intent.get("intent", "")).strip()
+    if intent_name not in {"config_lookup", "config_explain", "edit_existing_config"}:
+        return None
+
+    target_section = str(chat_intent.get("target_section") or "").strip().strip("[]")
+    if target_section:
+        detected = infer_config_request_target(f"Which file has [{target_section}]?")
+    else:
+        target_text = str(chat_intent.get("target") or "").strip()
+        if not target_text:
+            return None
+        prompt = (
+            f"Where is {target_text} macro defined?"
+            if _looks_like_macro_target(target_text)
+            else f"Where is {target_text} defined?"
+        )
+        detected = infer_config_request_target(prompt)
+
+    if intent_name == "config_explain":
+        return ConfigRequestTarget(
+            feature=detected.feature,
+            rationale=chat_intent.get("rationale") or detected.rationale,
+            intent="explain",
+            section_name=detected.section_name,
+        )
+
+    if intent_name == "edit_existing_config":
+        return ConfigRequestTarget(
+            feature=detected.feature,
+            rationale=chat_intent.get("rationale") or detected.rationale,
+            intent="edit",
+            section_name=detected.section_name,
+        )
+
+    return detected
+
+
+def _looks_like_macro_target(target_text: str) -> bool:
+    normalized = target_text.strip().strip("[]")
+    lowered = normalized.lower()
+    return lowered.startswith("gcode_macro ") or "_" in normalized or normalized.isupper()
+
+
 def detect_config_target(state: ConfigState) -> ConfigState:
-    target = infer_config_request_target(state["user_message"])
+    target = _config_target_from_chat_intent(state) or infer_config_request_target(state["user_message"])
     return {
         "feature_target": {
             "feature": target.feature,
@@ -196,13 +251,15 @@ async def collect_config_context(
 ) -> ConfigState:
     snapshot = runtime.context.config_collector.collect()
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
+    chat_intent = state.get("chat_intent", {})
+    include_runtime_context = bool(state.get("include_runtime_context", False) or chat_intent.get("needs_logs", False))
     runtime_snapshot = DiagnosticsSnapshot(
         moonraker_reachable=False,
         moonraker_info=None,
         artifacts=list(input_artifacts),
         notes=[],
     )
-    if runtime.context.host_logs is not None:
+    if include_runtime_context and runtime.context.host_logs is not None:
         host_artifacts, host_notes = runtime.context.host_logs.collect()
         runtime_snapshot = DiagnosticsSnapshot(
             moonraker_reachable=False,
@@ -224,14 +281,14 @@ async def collect_config_context(
 
 def resolve_config_lookup(state: ConfigState) -> ConfigState:
     target_data = state.get("feature_target", {})
-    if target_data.get("intent") != "locate":
+    if target_data.get("intent") not in {"locate", "explain"}:
         return {}
 
     snapshot = ConfigSnapshot.from_state(state.get("config_snapshot", {}))
     target = ConfigRequestTarget(
         feature=target_data.get("feature", "generic"),
         rationale=target_data.get("rationale", "Matched config lookup request."),
-        intent="locate",
+        intent=target_data.get("intent", "locate"),
         section_name=target_data.get("section_name"),
     )
     response_text, next_actions = build_config_lookup_response(

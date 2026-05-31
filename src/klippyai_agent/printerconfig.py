@@ -22,7 +22,7 @@ ConfigFeature = Literal[
     "extruder",
     "generic",
 ]
-ConfigRequestIntent = Literal["generate", "locate"]
+ConfigRequestIntent = Literal["generate", "locate", "explain", "edit"]
 
 _FEATURE_KEYWORDS: tuple[tuple[ConfigFeature, tuple[str, ...]], ...] = (
     ("bed_mesh", ("bed mesh", "bed_mesh", "mesh leveling", "adaptive mesh")),
@@ -53,6 +53,84 @@ _FEATURE_SECTION_PREFIXES: dict[ConfigFeature, tuple[str, ...]] = {
 }
 _DIRECT_SECTION_PATTERN = re.compile(r"\[([^\]]+)\]")
 _SECTION_LINE_PATTERN = re.compile(r"^\s*\[[^\]\n]+\]\s*$")
+_MACRO_WORD_PATTERN = re.compile(r"\b(?:gcode[_\s-]*)?macro\b(?!-)", re.IGNORECASE)
+_MACRO_IDENTIFIER_PATTERN = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)+\b")
+_MACRO_COMMAND_PATTERN = re.compile(r"\b[A-Z][A-Z0-9]{2,}\b")
+_MACRO_NAME_BOUNDARY_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "at",
+    "can",
+    "configured",
+    "declared",
+    "defined",
+    "definition",
+    "do",
+    "does",
+    "file",
+    "find",
+    "for",
+    "gcode",
+    "has",
+    "have",
+    "i",
+    "in",
+    "is",
+    "locate",
+    "located",
+    "macro",
+    "me",
+    "my",
+    "on",
+    "please",
+    "show",
+    "that",
+    "the",
+    "this",
+    "what",
+    "where",
+    "which",
+    "you",
+    "your",
+}
+_MACRO_NAME_LEADING_WORDS = {
+    "called",
+    "named",
+    "is",
+    "as",
+    "for",
+    "the",
+    "my",
+    "a",
+    "an",
+}
+_LOOKUP_CORRECTION_WORDS = ("i mean", "i meant", "actually", "rather", "instead", "sorry")
+_EXPLAIN_INTENT_WORDS = (
+    "called by",
+    "explain",
+    "how does",
+    "tell me about",
+    "used by",
+    "what does",
+    "what is",
+    "where is used",
+    "where is it used",
+)
+_EDIT_INTENT_WORDS = (
+    "change",
+    "disable",
+    "edit",
+    "enable",
+    "modify",
+    "remove",
+    "rename",
+    "replace",
+    "turn off",
+    "turn on",
+    "update",
+)
 
 
 @dataclass(slots=True)
@@ -94,6 +172,19 @@ class ConfigSectionLocation:
         return f"[{self.section}] at {self.path}:{self.line_number}"
 
 
+@dataclass(frozen=True, slots=True)
+class _ConfigLineReference:
+    path: str
+    line_number: int
+    section: str | None
+    line_text: str
+
+    def summary(self) -> str:
+        location = f"{self.path}:{self.line_number}"
+        section = f"[{self.section}]" if self.section else "top level"
+        return f"{section} at {location}: `{_inline_code(self.line_text)}`"
+
+
 @dataclass(slots=True)
 class ConfigSnapshot:
     root_file: str | None
@@ -127,10 +218,12 @@ class ConfigSnapshot:
         limit: int = 12,
     ) -> list[ConfigSectionLocation]:
         if target.section_name:
+            requested_key = _normalize_section_lookup_key(target.section_name)
             matches = [
                 location
                 for location in self.section_locations
                 if location.section.lower() == target.section_name.lower()
+                or _normalize_section_lookup_key(location.section) == requested_key
             ]
             return matches[:limit]
 
@@ -560,19 +653,58 @@ def infer_config_request_target(message: str) -> ConfigRequestTarget:
     explicit_section = _extract_explicit_section_name(message)
     if explicit_section:
         feature = _infer_feature_from_section_name(explicit_section)
+        if _looks_like_edit_request(lowered):
+            intent: ConfigRequestIntent = "edit"
+        elif _looks_like_explain_request(lowered):
+            intent = "explain"
+        else:
+            intent = "locate"
         return ConfigRequestTarget(
             feature=feature,
             rationale=f"Matched explicit section lookup for [{explicit_section}].",
-            intent="locate",
+            intent=intent,
             section_name=explicit_section,
+        )
+
+    macro_section = _extract_macro_section_name(message)
+    if macro_section and _looks_like_edit_request(lowered):
+        return ConfigRequestTarget(
+            feature="macro",
+            rationale=f"Matched macro edit request for [{macro_section}].",
+            intent="edit",
+            section_name=macro_section,
+        )
+
+    if macro_section and (_looks_like_lookup_request(lowered) or _looks_like_lookup_correction(lowered)):
+        return ConfigRequestTarget(
+            feature="macro",
+            rationale=f"Matched macro lookup for [{macro_section}].",
+            intent="locate",
+            section_name=macro_section,
+        )
+
+    if macro_section and _looks_like_explain_request(lowered):
+        return ConfigRequestTarget(
+            feature="macro",
+            rationale=f"Matched macro explanation request for [{macro_section}].",
+            intent="explain",
+            section_name=macro_section,
         )
 
     for feature, keywords in _FEATURE_KEYWORDS:
         if any(keyword in lowered for keyword in keywords):
+            if _looks_like_lookup_request(lowered):
+                intent = "locate"
+            elif _looks_like_edit_request(lowered):
+                intent = "edit"
+            elif _looks_like_explain_request(lowered):
+                intent = "explain"
+            else:
+                intent = "generate"
             return ConfigRequestTarget(
                 feature=feature,
                 rationale=f"Matched request keywords for {feature}.",
-                intent="locate" if _looks_like_lookup_request(lowered) else "generate",
+                intent=intent,
             )
 
     return ConfigRequestTarget(
@@ -597,10 +729,21 @@ def looks_like_config_request(message: str) -> bool:
         "cfg",
         "setup",
         "set up",
+        "change",
         "define",
+        "disable",
+        "edit",
+        "enable",
         "improve",
+        "modify",
         "optimize",
+        "remove",
+        "rename",
+        "replace",
         "rewrite",
+        "turn off",
+        "turn on",
+        "update",
     )
     lookup_intent_words = (
         "where",
@@ -618,8 +761,16 @@ def looks_like_config_request(message: str) -> bool:
 
     has_generate_intent = any(word in lowered for word in generate_intent_words)
     has_lookup_intent = any(word in lowered for word in lookup_intent_words) or _looks_like_section_content_request(lowered)
+    if _extract_macro_section_name(message) and (
+        has_lookup_intent
+        or _looks_like_lookup_correction(lowered)
+        or _looks_like_explain_request(lowered)
+        or _looks_like_edit_request(lowered)
+    ):
+        return True
+
     has_feature = any(keyword in lowered for _, keywords in _FEATURE_KEYWORDS for keyword in keywords)
-    return has_feature and (has_generate_intent or has_lookup_intent)
+    return has_feature and (has_generate_intent or has_lookup_intent or _looks_like_explain_request(lowered))
 
 
 def build_config_lookup_response(
@@ -632,6 +783,9 @@ def build_config_lookup_response(
     label = _describe_lookup_target(target)
 
     if matches:
+        if _is_exact_macro_lookup(target):
+            return _build_exact_macro_lookup_response(snapshot, target, matches, include_content=include_content)
+
         noun = "section" if len(matches) == 1 else "sections"
         lines = [f"I found {len(matches)} active {label} {noun} in the current config tree.", "", "Matches:"]
         lines.extend(f"- {match.summary()}" for match in matches)
@@ -665,6 +819,23 @@ def _looks_like_lookup_request(lowered_message: str) -> bool:
         "declared",
     )
     return any(word in lowered_message for word in lookup_intent_words) or _looks_like_section_content_request(lowered_message)
+
+
+def _looks_like_lookup_correction(lowered_message: str) -> bool:
+    return any(word in lowered_message for word in _LOOKUP_CORRECTION_WORDS)
+
+
+def _looks_like_explain_request(lowered_message: str) -> bool:
+    return any(word in lowered_message for word in _EXPLAIN_INTENT_WORDS)
+
+
+def _looks_like_edit_request(lowered_message: str) -> bool:
+    return any(_contains_intent_phrase(lowered_message, word) for word in _EDIT_INTENT_WORDS)
+
+
+def _contains_intent_phrase(lowered_message: str, phrase: str) -> bool:
+    pattern = r"(?<![a-z0-9_])" + re.escape(phrase).replace(r"\ ", r"\s+") + r"(?![a-z0-9_])"
+    return bool(re.search(pattern, lowered_message))
 
 
 def looks_like_config_content_request(message: str) -> bool:
@@ -703,6 +874,108 @@ def _extract_explicit_section_name(message: str) -> str | None:
     return section or None
 
 
+def _extract_macro_section_name(message: str) -> str | None:
+    macro_word_match = _MACRO_WORD_PATTERN.search(message)
+    if macro_word_match:
+        before = message[: macro_word_match.start()]
+        after = message[macro_word_match.end() :]
+        near_macro = _last_macro_candidate(before) or _first_macro_candidate(after)
+        if near_macro:
+            return near_macro
+
+    for match in _MACRO_IDENTIFIER_PATTERN.finditer(message):
+        candidate = _normalize_macro_name_candidate(match.group(0), allow_plain=False)
+        if candidate:
+            return candidate
+
+    for match in _MACRO_COMMAND_PATTERN.finditer(message):
+        candidate = _normalize_macro_name_candidate(match.group(0), allow_plain=False)
+        if candidate:
+            return candidate
+
+    return None
+
+
+def _last_macro_candidate(text: str) -> str | None:
+    identifier_matches = list(_MACRO_IDENTIFIER_PATTERN.finditer(text))
+    for match in reversed(identifier_matches):
+        candidate = _normalize_macro_name_candidate(match.group(0), allow_plain=True)
+        if candidate:
+            return candidate
+
+    words = _macro_words(text)
+    candidate_words: list[str] = []
+    for word in reversed(words):
+        if word.lower() in _MACRO_NAME_BOUNDARY_WORDS:
+            break
+        candidate_words.append(word)
+        if len(candidate_words) == 4:
+            break
+
+    if not candidate_words:
+        return None
+    candidate_words.reverse()
+    return _normalize_macro_name_candidate(" ".join(candidate_words), allow_plain=True)
+
+
+def _first_macro_candidate(text: str) -> str | None:
+    identifier_match = _MACRO_IDENTIFIER_PATTERN.search(text)
+    if identifier_match:
+        candidate = _normalize_macro_name_candidate(identifier_match.group(0), allow_plain=True)
+        if candidate:
+            return candidate
+
+    words = _macro_words(text)
+    while words and words[0].lower() in _MACRO_NAME_LEADING_WORDS:
+        words.pop(0)
+
+    candidate_words: list[str] = []
+    for word in words:
+        if word.lower() in _MACRO_NAME_BOUNDARY_WORDS:
+            break
+        candidate_words.append(word)
+        if len(candidate_words) == 4:
+            break
+
+    if not candidate_words:
+        return None
+    return _normalize_macro_name_candidate(" ".join(candidate_words), allow_plain=True)
+
+
+def _macro_words(text: str) -> list[str]:
+    return re.findall(r"[A-Za-z][A-Za-z0-9_-]*", text)
+
+
+def _normalize_macro_name_candidate(raw_name: str, *, allow_plain: bool) -> str | None:
+    words = _macro_words(raw_name.replace("`", " "))
+    while words and words[0].lower() in _MACRO_NAME_LEADING_WORDS:
+        words.pop(0)
+    while words and words[-1].lower() in _MACRO_NAME_BOUNDARY_WORDS:
+        words.pop()
+
+    if not words or len(words) > 4:
+        return None
+
+    if any(word.lower() in _MACRO_NAME_BOUNDARY_WORDS for word in words):
+        return None
+
+    if len(words) == 1 and not allow_plain and not _looks_like_macro_name_token(words[0]):
+        return None
+
+    macro_name = "_".join(word.replace("-", "_") for word in words).upper()
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", macro_name):
+        return None
+    return f"gcode_macro {macro_name}"
+
+
+def _looks_like_macro_name_token(token: str) -> bool:
+    return "_" in token or "-" in token or token.isupper()
+
+
+def _normalize_section_lookup_key(section_name: str) -> str:
+    return re.sub(r"[\s-]+", "_", section_name.strip().lower())
+
+
 def _infer_feature_from_section_name(section_name: str) -> ConfigFeature:
     lowered = section_name.lower()
     for feature, prefixes in _FEATURE_SECTION_PREFIXES.items():
@@ -722,6 +995,188 @@ def _section_matches_prefix(section_name: str, prefix: str) -> bool:
         return False
     next_char = lowered_section[len(lowered_prefix) : len(lowered_prefix) + 1]
     return next_char in {"", " ", "_"} or next_char.isdigit()
+
+
+def _is_exact_macro_lookup(target: ConfigRequestTarget) -> bool:
+    return bool(target.section_name and _section_matches_prefix(target.section_name, "gcode_macro"))
+
+
+def _build_exact_macro_lookup_response(
+    snapshot: ConfigSnapshot,
+    target: ConfigRequestTarget,
+    matches: list[ConfigSectionLocation],
+    *,
+    include_content: bool,
+) -> tuple[str, list[str]]:
+    if len(matches) == 1:
+        match = matches[0]
+        macro_name = _macro_name_from_section(match.section) or _macro_name_from_section(target.section_name or "")
+        subject = macro_name or f"[{match.section}]"
+        lines = [f"{subject} is defined in {match.path}:{match.line_number} as [{match.section}]."]
+        if macro_name:
+            references = _find_macro_references(snapshot, macro_name, definition=match)
+            lines.extend(["", *_format_macro_reference_lines(macro_name, references)])
+
+        block = snapshot.section_block(match)
+        behavior_lines = _format_macro_behavior_lines(block)
+        if behavior_lines:
+            lines.extend(["", *behavior_lines])
+
+        if include_content:
+            if block:
+                lines.extend(["", "Config:", "```ini", block, "```"])
+        return "\n".join(lines), []
+
+    lines = [
+        f"I found {len(matches)} active definitions for {_describe_lookup_target(target)} in the current config tree.",
+        "",
+        "Matches:",
+    ]
+    lines.extend(f"- {match.summary()}" for match in matches)
+    return "\n".join(lines), ["Remove or rename duplicate macro definitions so only one active section remains."]
+
+
+def _macro_name_from_section(section_name: str) -> str | None:
+    parts = section_name.split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "gcode_macro":
+        return None
+    return parts[1].strip() or None
+
+
+def _find_macro_references(
+    snapshot: ConfigSnapshot,
+    macro_name: str,
+    *,
+    definition: ConfigSectionLocation,
+    limit: int = 8,
+) -> list[_ConfigLineReference]:
+    pattern = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(macro_name)}(?![A-Za-z0-9_-])", re.IGNORECASE)
+    references: list[_ConfigLineReference] = []
+
+    for document in snapshot.documents:
+        current_section: str | None = None
+        for line_number, raw_line in enumerate(document.content.splitlines(), start=1):
+            section_match = _SECTION_LINE_PATTERN.match(raw_line)
+            if section_match:
+                current_section = raw_line.strip()[1:-1].strip()
+                continue
+
+            if document.path == definition.path and current_section == definition.section:
+                continue
+
+            searchable_line = _strip_config_comments(raw_line).strip()
+            if not searchable_line or not pattern.search(searchable_line):
+                continue
+
+            references.append(
+                _ConfigLineReference(
+                    path=document.path,
+                    line_number=line_number,
+                    section=current_section,
+                    line_text=searchable_line,
+                )
+            )
+            if len(references) >= limit:
+                return references
+
+    return references
+
+
+def _format_macro_reference_lines(macro_name: str, references: list[_ConfigLineReference]) -> list[str]:
+    if not references:
+        return [
+            "Used by: no direct calls found in the collected config files.",
+            "It may still be run manually, from the printer UI, or by slicer/start g-code outside this config tree.",
+        ]
+
+    lines = ["Used by:"]
+    lines.extend(f"- {reference.summary()}" for reference in references)
+    return lines
+
+
+def _format_macro_behavior_lines(block: str | None) -> list[str]:
+    if not block:
+        return []
+
+    description, commands = _extract_macro_behavior(block)
+    lines: list[str] = []
+    if description:
+        lines.append(f"Description: {description}")
+
+    summaries = [_summarize_macro_command(command) for command in commands[:5]]
+    if not summaries:
+        return lines
+
+    lines.append("What it does:")
+    lines.extend(f"- {summary}" for summary in summaries)
+    if len(commands) > len(summaries):
+        lines.append(f"- ...and {len(commands) - len(summaries)} more command(s).")
+    return lines
+
+
+def _extract_macro_behavior(block: str) -> tuple[str | None, list[str]]:
+    description: str | None = None
+    commands: list[str] = []
+    in_gcode = False
+
+    for raw_line in block.splitlines()[1:]:
+        line_without_comment = _strip_config_comments(raw_line).rstrip()
+        stripped = line_without_comment.strip()
+        if not stripped:
+            continue
+
+        option_match = re.match(r"^([A-Za-z0-9_]+)\s*:\s*(.*?)\s*$", line_without_comment)
+        if option_match:
+            option = option_match.group(1).strip().lower()
+            value = option_match.group(2).strip()
+            in_gcode = option == "gcode"
+            if option == "description" and value:
+                description = value.strip("\"'")
+            elif in_gcode and value:
+                commands.append(value)
+            continue
+
+        if not in_gcode:
+            continue
+
+        if stripped.startswith(("{%", "{#", "{{")):
+            continue
+        commands.append(stripped)
+
+    return description, commands
+
+
+def _summarize_macro_command(command: str) -> str:
+    compact_command = re.sub(r"\s+", " ", command).strip()
+    command_name = compact_command.split(maxsplit=1)[0].upper() if compact_command else ""
+    params = _parse_gcode_params(compact_command)
+
+    if command_name == "SET_FILAMENT_SENSOR":
+        sensor = params.get("SENSOR")
+        enabled = params.get("ENABLE")
+        if sensor and enabled == "1":
+            return f"enables filament sensor `{_inline_code(sensor)}`."
+        if sensor and enabled == "0":
+            return f"disables filament sensor `{_inline_code(sensor)}`."
+        if sensor:
+            return f"updates filament sensor `{_inline_code(sensor)}`."
+
+    return f"runs `{_inline_code(compact_command)}`."
+
+
+def _parse_gcode_params(command: str) -> dict[str, str]:
+    return {
+        match.group(1).upper(): match.group(2).strip("\"'")
+        for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|\S+)", command)
+    }
+
+
+def _strip_config_comments(line: str) -> str:
+    return line.split("#", 1)[0].split(";", 1)[0]
+
+
+def _inline_code(value: str) -> str:
+    return value.replace("`", "'")
 
 
 def _describe_lookup_target(target: ConfigRequestTarget) -> str:
