@@ -32,6 +32,18 @@ let appState = {
 let isLoading = false;
 let loadingConversationId = null;
 
+function setText(element, text) {
+  if (element) {
+    element.textContent = text;
+  }
+}
+
+function setDisabled(element, disabled) {
+  if (element) {
+    element.disabled = disabled;
+  }
+}
+
 function setNavigationOpen(isOpen) {
   body.classList.toggle("nav-open", isOpen);
 }
@@ -219,7 +231,9 @@ function restoreState() {
   ensureConversationState();
   const currentConversation = getCurrentConversation();
   body.dataset.sessionId = currentConversation?.sessionId || "";
-  messageInput.value = currentConversation?.draft || "";
+  if (messageInput) {
+    messageInput.value = currentConversation?.draft || "";
+  }
   renderHistory();
   renderConversation();
   persistState();
@@ -227,7 +241,7 @@ function restoreState() {
 
 function persistState() {
   const currentConversation = getCurrentConversation();
-  if (currentConversation) {
+  if (currentConversation && messageInput) {
     currentConversation.draft = messageInput.value;
   }
 
@@ -274,15 +288,19 @@ function buildHistoryMeta(conversation) {
 }
 
 function syncInteractiveState() {
-  sendButton.disabled = isLoading;
-  newChatButton.disabled = isLoading;
-  messageInput.disabled = isLoading;
-  for (const item of historyList.querySelectorAll(".history-item")) {
+  setDisabled(sendButton, isLoading);
+  setDisabled(newChatButton, isLoading);
+  setDisabled(messageInput, isLoading);
+  for (const item of historyList?.querySelectorAll(".history-item") || []) {
     item.disabled = isLoading;
   }
 }
 
 function renderHistory() {
+  if (!historyList) {
+    return;
+  }
+
   sortConversationsInPlace();
   historyList.innerHTML = "";
 
@@ -322,6 +340,9 @@ function renderHistory() {
 }
 
 function scrollMessagesToBottom() {
+  if (!messages) {
+    return;
+  }
   messages.scrollTop = messages.scrollHeight;
 }
 
@@ -388,14 +409,28 @@ function appendConfigProposals(article, configProposals) {
 }
 
 function buildMessageElement(entry, options = {}) {
-  const fragment = template.content.cloneNode(true);
-  const article = fragment.querySelector(".message");
-  const meta = fragment.querySelector(".message-meta");
-  const content = fragment.querySelector(".message-body");
+  const fragment = template?.content?.cloneNode(true) || document.createDocumentFragment();
+  const article = fragment.querySelector(".message") || document.createElement("article");
+  let meta = article.querySelector(".message-meta") || fragment.querySelector(".message-meta");
+  let content = article.querySelector(".message-body") || fragment.querySelector(".message-body");
+
+  article.classList.add("message");
+
+  if (!meta) {
+    meta = document.createElement("div");
+    meta.className = "message-meta";
+    article.appendChild(meta);
+  }
+
+  if (!content) {
+    content = document.createElement("div");
+    content.className = "message-body";
+    article.appendChild(content);
+  }
 
   article.classList.add(entry.role);
-  meta.textContent = entry.role === "user" ? "You" : "KlippyAI";
-  content.textContent = entry.text;
+  setText(meta, entry.role === "user" ? "You" : "KlippyAI");
+  setText(content, entry.text);
 
   if (options.pending) {
     article.classList.add("pending");
@@ -411,7 +446,7 @@ function buildMessageElement(entry, options = {}) {
 
 function renderConversation() {
   const conversation = getCurrentConversation();
-  if (!conversation) {
+  if (!conversation || !messages) {
     return;
   }
 
@@ -433,20 +468,22 @@ function renderConversation() {
     );
   }
 
-  messageInput.value = conversation.draft || "";
+  if (messageInput) {
+    messageInput.value = conversation.draft || "";
+  }
   body.dataset.sessionId = conversation.sessionId || "";
   scrollMessagesToBottom();
   syncInteractiveState();
 }
 
 function setComposerStatus(text) {
-  composerStatus.textContent = text || "";
+  setText(composerStatus, text || "");
 }
 
 function setLoadingState(nextLoading, conversationId = null) {
   isLoading = nextLoading;
   loadingConversationId = nextLoading ? conversationId : null;
-  sendButton.textContent = nextLoading ? "Analyzing..." : "Analyze";
+  setText(sendButton, nextLoading ? "Analyzing..." : "Analyze");
   setComposerStatus(nextLoading ? "Waiting for the response..." : "");
   renderHistory();
   renderConversation();
@@ -454,7 +491,7 @@ function setLoadingState(nextLoading, conversationId = null) {
 
 function selectConversation(conversationId) {
   const currentConversation = getCurrentConversation();
-  if (currentConversation) {
+  if (currentConversation && messageInput) {
     currentConversation.draft = messageInput.value;
   }
 
@@ -470,11 +507,11 @@ function selectConversation(conversationId) {
 function startNewChat() {
   const currentConversation = getCurrentConversation();
   if (isConversationPristine(currentConversation)) {
-    messageInput.focus();
+    messageInput?.focus();
     return;
   }
 
-  if (currentConversation) {
+  if (currentConversation && messageInput) {
     currentConversation.draft = messageInput.value;
   }
 
@@ -485,7 +522,7 @@ function startNewChat() {
   renderHistory();
   renderConversation();
   persistState();
-  messageInput.focus();
+  messageInput?.focus();
 }
 
 async function ensureSessionId(forceRefresh = false) {
@@ -524,6 +561,9 @@ function formatProviderStatus(provider, model) {
 }
 
 function updateReachabilityBadge(badge, label, reachable) {
+  if (!badge) {
+    return;
+  }
   badge.textContent = reachable ? `${label}: reachable` : `${label}: unavailable`;
   badge.classList.remove("ok", "warn");
   badge.classList.add(reachable ? "ok" : "warn");
@@ -543,7 +583,7 @@ async function bootstrap() {
   }
 
   const payload = await response.json();
-  providerBadge.textContent = formatProviderStatus(payload.provider, payload.provider_model);
+  setText(providerBadge, formatProviderStatus(payload.provider, payload.provider_model));
   updateReachabilityBadge(moonrakerBadge, "Moonraker", Boolean(payload.moonraker_reachable));
   updateReachabilityBadge(klipperBadge, "Klipper", Boolean(payload.klipper_reachable));
   persistState();
@@ -559,7 +599,7 @@ async function sendMessage() {
     return;
   }
 
-  const message = messageInput.value.trim();
+  const message = messageInput?.value?.trim() || "";
   if (!message) {
     conversation.messages.push({
       role: "assistant",
@@ -660,15 +700,15 @@ async function sendMessage() {
   }
 }
 
-sendButton.addEventListener("click", () => {
+sendButton?.addEventListener("click", () => {
   void sendMessage();
 });
 
-newChatButton.addEventListener("click", () => {
+newChatButton?.addEventListener("click", () => {
   startNewChat();
 });
 
-messageInput.addEventListener("input", () => {
+messageInput?.addEventListener("input", () => {
   const conversation = getCurrentConversation();
   if (!conversation) {
     return;

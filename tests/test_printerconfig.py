@@ -251,14 +251,18 @@ def test_config_request_detection_handles_lookup_queries() -> None:
 
 
 def test_config_request_detection_treats_bare_macro_name_as_exact_lookup() -> None:
-    message = "Where is my sfs_enable macro defined?"
+    messages = [
+        "Where is my sfs_enable macro defined?",
+        "where is SFS_ENABLE macro defined?",
+    ]
 
-    assert looks_like_config_request(message) is True
-    target = infer_config_request_target(message)
+    for message in messages:
+        assert looks_like_config_request(message) is True
+        target = infer_config_request_target(message)
 
-    assert target.feature == "macro"
-    assert target.intent == "locate"
-    assert target.section_name == "gcode_macro SFS_ENABLE"
+        assert target.feature == "macro"
+        assert target.intent == "locate"
+        assert target.section_name == "gcode_macro SFS_ENABLE"
 
 
 def test_config_request_detection_treats_macro_questions_as_explain_intent() -> None:
