@@ -316,7 +316,7 @@ def write_profile_to_cfg(
             "bed_mesh_configured": "true" if profile.bed_mesh_configured else "false",
             "input_shaper_configured": "true" if profile.input_shaper_configured else "false",
             "canbus_enabled": "true" if profile.canbus_enabled else "false",
-            "addons": ", ".join(addon.name for addon in profile.addons),
+            "addons": ", ".join(sorted(addon.name for addon in profile.addons)),
         },
         "config_context": {
             "root_config_file": root_config_file or "",
@@ -338,7 +338,7 @@ def write_profile_to_cfg(
                 parser.set(section, key, value)
                 continue
             existing = parser.get(section, key, fallback="").strip()
-            if existing:
+            if existing and not _should_replace_profile_value(section, key, existing, value):
                 continue
             parser.set(section, key, value)
 
@@ -356,6 +356,17 @@ def write_profile_to_cfg(
             "printer_capabilities": {"camera_stack"},
         },
     )
+
+
+def _should_replace_profile_value(section: str, key: str, existing: str, value: str) -> bool:
+    if (
+        section == "printer_capabilities"
+        and key in {"bed_mesh_configured", "input_shaper_configured", "canbus_enabled"}
+        and existing.strip().lower() == "false"
+        and value.strip().lower() == "true"
+    ):
+        return True
+    return False
 
 
 def _rewrite_cfg_preserving_comments(
@@ -453,14 +464,26 @@ def _rewrite_ini_section_block(
         raw_key = option_match.group(2)
         separator = option_match.group(3)
         key = raw_key.strip().lower()
+        remainder = option_match.group(4) or ""
         suffix = option_match.group(5) or ""
+        comment = suffix.lstrip()
+        if not comment and remainder.lstrip().startswith(("#", ";")):
+            comment = remainder.lstrip()
         if key in removed_option_names:
             continue
         if key in values:
             if key in seen_keys:
                 continue
-            spacer = "" if not suffix else " "
-            rewritten.append(f"{leading}{raw_key}{separator}{values[key]}{spacer}{suffix.lstrip()}{newline}")
+            rewritten.append(
+                _format_ini_option_line(
+                    leading=leading,
+                    raw_key=raw_key,
+                    separator=separator,
+                    value=values[key],
+                    comment=comment,
+                    newline=newline,
+                )
+            )
             seen_keys.add(key)
             continue
         rewritten.append(line)
@@ -477,6 +500,23 @@ def _rewrite_ini_section_block(
 
     rewritten.extend(trailing_blanks)
     return "".join(rewritten)
+
+
+def _format_ini_option_line(
+    *,
+    leading: str,
+    raw_key: str,
+    separator: str,
+    value: str,
+    comment: str,
+    newline: str,
+) -> str:
+    normalized_separator = separator.rstrip()
+    if comment:
+        if value:
+            return f"{leading}{raw_key}{normalized_separator} {value}  {comment}{newline}"
+        return f"{leading}{raw_key}{normalized_separator}  {comment}{newline}"
+    return f"{leading}{raw_key}{normalized_separator} {value}{newline}"
 
 
 def _build_ini_section_block(
@@ -527,12 +567,14 @@ class PrinterProfileCollector:
         ("BTT SKR Pico", ("skr pico",)),
         ("BTT SKR 3", ("skr 3",)),
         ("BTT Spider", ("spider",)),
+        ("Mellow Fly", ("mellow fly", "fly-", "fly ")),
+        ("Fysetc Spider", ("fysetc spider",)),
+    )
+    _TOOLHEAD_BOARD_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("BTT EBB36", ("ebb36",)),
         ("BTT EBB42", ("ebb42",)),
         ("Mellow SB2209", ("sb2209",)),
         ("Mellow SB2240", ("sb2240",)),
-        ("Mellow Fly", ("mellow fly", "fly-", "fly ")),
-        ("Fysetc Spider", ("fysetc spider",)),
     )
     _TOOLHEAD_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("Stealthburner", ("stealthburner",)),
@@ -972,7 +1014,7 @@ class PrinterProfileCollector:
         snapshot: ConfigSnapshot,
     ) -> str | None:
         explicit = self._match_named_hint(
-            self._BOARD_HINTS,
+            self._TOOLHEAD_BOARD_HINTS + self._BOARD_HINTS,
             snapshot,
             None,
             toolhead_mcu,

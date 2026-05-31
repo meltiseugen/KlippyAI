@@ -200,6 +200,35 @@ async def test_collect_config_context_skips_host_logs_for_config_lookup_by_defau
 
 
 @pytest.mark.asyncio
+async def test_collect_config_context_includes_unincluded_files_for_lookup(tmp_path: Path) -> None:
+    config_dir = tmp_path / "printer_data" / "config"
+    klippy_dir = config_dir / "Klippy"
+    klippy_dir.mkdir(parents=True)
+    (config_dir / "printer.cfg").write_text("[printer]\nkinematics: cartesian\n", encoding="utf-8")
+    (klippy_dir / "filament.cfg").write_text("[gcode_macro SFS_ENABLE]\ngcode:\n  M118 enabled\n", encoding="utf-8")
+
+    runtime = SimpleNamespace(
+        context=SimpleNamespace(
+            config_collector=ConfigCollector(tmp_path / "printer_data"),
+            host_logs=None,
+        )
+    )
+
+    result = await collect_config_context(
+        {
+            "feature_target": {
+                "intent": "locate",
+            }
+        },
+        runtime,
+    )
+
+    document_paths = [document["path"] for document in result["config_snapshot"]["documents"]]
+    assert any(path.endswith("Klippy/filament.cfg") or path.endswith("Klippy\\filament.cfg") for path in document_paths)
+    assert any("Additional config file collected" in note for note in result["config_snapshot"]["notes"])
+
+
+@pytest.mark.asyncio
 async def test_collect_config_context_merges_request_artifacts_with_host_logs_when_needed(tmp_path: Path) -> None:
     config_dir = tmp_path / "printer_data" / "config"
     logs_dir = tmp_path / "printer_data" / "logs"

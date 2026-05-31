@@ -347,10 +347,21 @@ textarea {
   padding-right: 2px;
 }
 
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  gap: 6px;
+  align-items: stretch;
+}
+
 .history-item {
   display: grid;
   gap: 4px;
   width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  align-content: start;
+  justify-content: stretch;
   padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -369,10 +380,28 @@ textarea {
   background: rgba(62, 166, 255, 0.09);
 }
 
-.history-item.active {
+.history-row.active .history-item {
   border-color: var(--accent-line);
   background: rgba(62, 166, 255, 0.14);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.history-delete-button {
+  min-width: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 0.72rem;
+}
+
+.history-delete-button:hover:not(:disabled) {
+  border-color: rgba(239, 190, 115, 0.45);
+  background: rgba(239, 190, 115, 0.1);
+  color: var(--warn);
 }
 
 .history-item-title {
@@ -674,6 +703,14 @@ button:disabled {
   opacity: 0.68;
   cursor: wait;
   transform: none;
+}
+
+.history-item {
+  display: grid;
+  align-items: start;
+  align-content: start;
+  justify-content: stretch;
+  text-align: left;
 }
 
 @media (max-width: 1180px) {

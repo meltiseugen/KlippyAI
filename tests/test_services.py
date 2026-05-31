@@ -242,6 +242,48 @@ async def test_chat_service_uses_llm_intent_router_for_ambiguous_requests() -> N
 
 
 @pytest.mark.asyncio
+async def test_chat_service_prefers_intent_router_over_deterministic_guess() -> None:
+    sessions = InMemorySessionStore(ttl_seconds=60)
+    session = sessions.create()
+
+    intent_router = _FakeIntentRouter(
+        {
+            "intent": "diagnose_issue",
+            "target": "extruder",
+            "needs_logs": True,
+            "confidence": 0.92,
+            "rationale": "The user is asking about a failure.",
+        }
+    )
+    diagnosis_graph = _FakeGraph("diagnostics", {"response_text": "diagnostics"})
+    config_graph = _FakeGraph("config", {"response_text": "config"})
+    service = ChatService(
+        provider_name="stub",
+        root_path="",
+        diagnosis_graph=diagnosis_graph,
+        config_graph=config_graph,
+        workflow_context=SimpleNamespace(
+            collector=_FakeCollector(),
+            intent_router=intent_router,
+            profile=PrinterProfile(firmware_flavor="Kalico"),
+        ),
+        sessions=sessions,
+    )
+
+    await service.chat(
+        ChatRequest(
+            session_id=session.session_id,
+            message="Where do I have the extruder defined?",
+            artifacts=[],
+        )
+    )
+
+    assert intent_router.calls == ["Where do I have the extruder defined?"]
+    assert diagnosis_graph.calls
+    assert not config_graph.calls
+
+
+@pytest.mark.asyncio
 async def test_chat_service_promotes_structured_question_text_into_artifact() -> None:
     sessions = InMemorySessionStore(ttl_seconds=60)
     session = sessions.create()

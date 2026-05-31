@@ -249,7 +249,11 @@ async def collect_config_context(
     state: ConfigState,
     runtime: WorkflowRuntime,
 ) -> ConfigState:
-    snapshot = runtime.context.config_collector.collect()
+    target_data = state.get("feature_target", {})
+    include_unincluded_configs = target_data.get("intent") in {"locate", "explain", "edit"}
+    snapshot = runtime.context.config_collector.collect_with_options(
+        include_unincluded_configs=include_unincluded_configs
+    )
     input_artifacts = [ArtifactInput.model_validate(item) for item in state.get("artifacts", [])]
     chat_intent = state.get("chat_intent", {})
     include_runtime_context = bool(state.get("include_runtime_context", False) or chat_intent.get("needs_logs", False))
@@ -439,14 +443,12 @@ class ConfigWorkflow:
         del config
         current = dict(state)
         runtime = WorkflowRuntime(context=context)
-        for node in (detect_config_target, collect_config_context, resolve_config_lookup):
+        for node in (detect_config_target, collect_config_context):
             update = node(current, runtime) if _accepts_runtime(node) else node(current)
             if inspect.isawaitable(update):
                 update = await update
             if update:
                 current.update(update)
-        if route_config_request(current) == "lookup_done":
-            return current
         for node in (call_config_llm, compose_config_response):
             update = node(current, runtime) if _accepts_runtime(node) else node(current)
             if inspect.isawaitable(update):

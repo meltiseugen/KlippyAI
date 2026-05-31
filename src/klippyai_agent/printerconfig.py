@@ -374,6 +374,9 @@ class ConfigCollector:
         self._max_chars_per_document = max_chars_per_document
 
     def collect(self) -> ConfigSnapshot:
+        return self.collect_with_options()
+
+    def collect_with_options(self, *, include_unincluded_configs: bool = False) -> ConfigSnapshot:
         notes: list[str] = []
         if not self._config_dir.exists():
             notes.append(f"Config directory does not exist: {self._config_dir}")
@@ -392,6 +395,8 @@ class ConfigCollector:
         section_locations: list[ConfigSectionLocation] = []
         placeholders: list[ConfigPlaceholder] = []
         self._collect_file(root_file, visited, documents, section_locations, placeholders, notes)
+        if include_unincluded_configs:
+            self._collect_unincluded_config_files(visited, documents, section_locations, placeholders, notes)
         if self._max_documents is not None and len(documents) >= self._max_documents:
             notes.append(f"Config collection stopped after {self._max_documents} files to keep context bounded.")
 
@@ -527,6 +532,39 @@ class ConfigCollector:
                 self._collect_file(match, visited, documents, section_locations, placeholders, notes)
                 if self._max_documents is not None and len(documents) >= self._max_documents:
                     return
+
+    def _collect_unincluded_config_files(
+        self,
+        visited: set[Path],
+        documents: list[ConfigDocument],
+        section_locations: list[ConfigSectionLocation],
+        placeholders: list[ConfigPlaceholder],
+        notes: list[str],
+    ) -> None:
+        candidates = [
+            path
+            for path in sorted(self._config_dir.rglob("*.cfg"), key=lambda candidate: candidate.as_posix().lower())
+            if path.is_file() and not self._should_ignore(path)
+        ]
+        added = 0
+        for path in candidates:
+            if self._max_documents is not None and len(documents) >= self._max_documents:
+                return
+            try:
+                resolved = path.resolve()
+            except OSError:
+                resolved = path
+            if resolved in visited:
+                continue
+
+            notes.append(f"Additional config file collected for lookup context; it may not be active unless included: {path}")
+            before_count = len(documents)
+            self._collect_file(path, visited, documents, section_locations, placeholders, notes)
+            if len(documents) > before_count:
+                added += 1
+
+        if added:
+            notes.append(f"Collected {added} additional config file(s) outside the active include walk for lookup context.")
 
     @classmethod
     def _extract_include_patterns(cls, content: str) -> list[str]:

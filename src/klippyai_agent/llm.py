@@ -10,7 +10,7 @@ from pydantic import Field, validator
 from klippyai_agent.diagnostics import DiagnosticsSnapshot
 from klippyai_agent.intent import ChatIntentOutput, IntentRouterProvider, classify_deterministic_intent
 from klippyai_agent.model_compat import BaseModel
-from klippyai_agent.printerconfig import ConfigRequestTarget, ConfigSnapshot
+from klippyai_agent.printerconfig import build_config_lookup_response, ConfigRequestTarget, ConfigSnapshot
 from klippyai_agent.printerprofile import PrinterProfile
 from klippyai_agent.schemas import ConfigProposal, IssueFinding
 from klippyai_agent.settings import Settings
@@ -133,6 +133,19 @@ class StubConfigAssistantProvider:
     name = "stub"
 
     async def propose(self, payload: ConfigPromptPayload) -> ConfigAssistantOutput:
+        if payload.target.intent in {"locate", "explain"}:
+            response_text, next_actions = build_config_lookup_response(
+                payload.snapshot,
+                payload.target,
+                include_content=payload.target.intent == "explain",
+            )
+            return ConfigAssistantOutput(
+                summary=response_text,
+                proposals=[],
+                next_actions=next_actions,
+                follow_up_questions=[],
+            )
+
         proposal = self._build_stub_proposal(payload)
         profile_summary = payload.profile.summary_label()
         summary = f"Generated a first-pass {proposal.feature} config proposal based on the current request and collected printer config."
@@ -626,13 +639,18 @@ class OpenAIConfigAssistantProvider:
         data = await self._client.complete_json(
             system_prompt=(
                 "You are an expert Klipper and Kalico configuration assistant. "
-                "Generate safe, reviewable config snippets only. Prefer managed include snippets under klippyai/*.cfg. "
+                "For locate or explain requests, answer the user's question directly from the supplied config context instead of generating a snippet. "
+                "For locate requests, lead with the exact file path and line number when present. "
+                "If an exact section is not present, say that plainly and mention close matches or additional collected files only when the evidence supports it. "
+                "If a file is marked as additional lookup context, explain that it may not be active unless included. "
+                "For generate or edit requests, generate safe, reviewable config snippets only and prefer managed include snippets under klippyai/*.cfg. "
                 "Do not imply that you can write files or apply changes directly. "
                 "Do not invent existing pins or hardware details. If details are missing, use placeholders and list the assumptions clearly. "
                 "Use the detected printer profile to tailor suggestions to the printer's firmware flavor, MCU layout, and installed addons. "
-                "Keep summary and next actions brief because the UI renders proposal details separately. "
+                "Keep summary and next actions brief. "
                 "Return only JSON with keys: summary, proposals, next_actions, follow_up_questions. "
-                "Each proposal must include: feature, title, target_file, config, rationale, assumptions, warnings."
+                "For locate or explain requests, proposals should usually be an empty list. "
+                "Each proposal, when present, must include: feature, title, target_file, config, rationale, assumptions, warnings."
             ),
             user_prompt=(
                 f"User request:\n{payload.user_message}\n\n"

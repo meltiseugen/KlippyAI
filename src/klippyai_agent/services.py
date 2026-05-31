@@ -167,8 +167,6 @@ class ChatService:
 
     async def _classify_chat_intent(self, message: str) -> ChatIntentOutput:
         deterministic = classify_deterministic_intent(message)
-        if deterministic.confidence >= 0.8:
-            return deterministic
 
         intent_router = getattr(self.workflow_context, "intent_router", None)
         if intent_router is None:

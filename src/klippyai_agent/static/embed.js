@@ -1,8 +1,9 @@
 const body = document.body;
-const apiBase = body.dataset.apiBase;
+const apiBase = resolveApiBase(body.dataset.apiBase);
 const messages = document.getElementById("messages");
 const historyList = document.getElementById("history-list");
 const providerBadge = document.getElementById("provider-badge");
+const modelBadge = document.getElementById("model-badge");
 const moonrakerBadge = document.getElementById("moonraker-badge");
 const klipperBadge = document.getElementById("klipper-badge");
 const sendButton = document.getElementById("send-button");
@@ -31,6 +32,21 @@ let appState = {
 };
 let isLoading = false;
 let loadingConversationId = null;
+
+function resolveApiBase(configuredApiBase) {
+  const configured = String(configuredApiBase || "").trim();
+  if (configured && configured !== "/api") {
+    return configured.replace(/\/+$/, "");
+  }
+
+  const path = window.location.pathname.replace(/\/+$/, "");
+  const inferredRoot = path.replace(/\/(?:embed|direct)$/i, "");
+  if (inferredRoot && inferredRoot !== "/" && inferredRoot !== "/api") {
+    return `${inferredRoot}/api`;
+  }
+
+  return configured || "/api";
+}
 
 function setText(element, text) {
   if (element) {
@@ -291,7 +307,7 @@ function syncInteractiveState() {
   setDisabled(sendButton, isLoading);
   setDisabled(newChatButton, isLoading);
   setDisabled(messageInput, isLoading);
-  for (const item of historyList?.querySelectorAll(".history-item") || []) {
+  for (const item of historyList?.querySelectorAll(".history-item, .history-delete-button") || []) {
     item.disabled = isLoading;
   }
 }
@@ -305,12 +321,15 @@ function renderHistory() {
   historyList.innerHTML = "";
 
   for (const conversation of appState.conversations) {
+    const row = document.createElement("div");
+    row.className = "history-row";
+    if (conversation.id === appState.currentConversationId) {
+      row.classList.add("active");
+    }
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "history-item";
-    if (conversation.id === appState.currentConversationId) {
-      button.classList.add("active");
-    }
 
     const title = document.createElement("div");
     title.className = "history-item-title";
@@ -333,10 +352,47 @@ function renderHistory() {
       }
     });
 
-    historyList.appendChild(button);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "history-delete-button";
+    deleteButton.title = `Delete chat: ${conversation.title}`;
+    deleteButton.setAttribute("aria-label", `Delete chat: ${conversation.title}`);
+    deleteButton.textContent = "X";
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (!isLoading) {
+        deleteConversation(conversation.id);
+      }
+    });
+
+    row.appendChild(button);
+    row.appendChild(deleteButton);
+    historyList.appendChild(row);
   }
 
   syncInteractiveState();
+}
+
+function deleteConversation(conversationId) {
+  if (isLoading) {
+    return;
+  }
+
+  const wasCurrent = appState.currentConversationId === conversationId;
+  appState.conversations = appState.conversations.filter((conversation) => conversation.id !== conversationId);
+
+  if (appState.conversations.length === 0) {
+    const conversation = createConversation({ sessionId: body.dataset.sessionId?.trim() || null });
+    appState.conversations = [conversation];
+    appState.currentConversationId = conversation.id;
+  } else if (wasCurrent) {
+    sortConversationsInPlace();
+    appState.currentConversationId = appState.conversations[0].id;
+  }
+
+  renderHistory();
+  renderConversation();
+  persistState();
 }
 
 function scrollMessagesToBottom() {
@@ -554,10 +610,9 @@ async function ensureSessionId(forceRefresh = false) {
   return conversation.sessionId;
 }
 
-function formatProviderStatus(provider, model) {
-  const providerLabel = String(provider || "unavailable").trim() || "unavailable";
-  const modelLabel = String(model || "").trim();
-  return modelLabel ? `Provider: ${providerLabel} | Model: ${modelLabel}` : `Provider: ${providerLabel}`;
+function formatBadgeStatus(label, value) {
+  const valueLabel = String(value || "unavailable").trim() || "unavailable";
+  return `${label}: ${valueLabel}`;
 }
 
 function updateReachabilityBadge(badge, label, reachable) {
@@ -583,7 +638,8 @@ async function bootstrap() {
   }
 
   const payload = await response.json();
-  setText(providerBadge, formatProviderStatus(payload.provider, payload.provider_model));
+  setText(providerBadge, formatBadgeStatus("Provider", payload.provider));
+  setText(modelBadge, formatBadgeStatus("Model", payload.provider_model));
   updateReachabilityBadge(moonrakerBadge, "Moonraker", Boolean(payload.moonraker_reachable));
   updateReachabilityBadge(klipperBadge, "Klipper", Boolean(payload.klipper_reachable));
   persistState();
