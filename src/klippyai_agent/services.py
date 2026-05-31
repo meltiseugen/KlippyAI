@@ -16,6 +16,7 @@ from klippyai_agent.schemas import (
     IssueFinding,
     PatchProposal,
     PrinterProfileSummary,
+    SourceCitation,
     UiSessionResponse,
 )
 from klippyai_agent.sessions import InMemorySessionStore
@@ -153,14 +154,16 @@ class ChatService:
         findings = [IssueFinding.model_validate(item) for item in result.get("findings", [])]
         config_proposals = [ConfigProposal.model_validate(item) for item in result.get("config_proposals", [])]
         patch_proposals = [PatchProposal.model_validate(item) for item in result.get("patch_proposals", [])]
+        source_citations = [SourceCitation.model_validate(item) for item in result.get("source_citations", [])]
         logger.info(
-            "Chat response session_id=%s thread_id=%s route=%s findings=%s config_proposals=%s patch_proposals=%s moonraker_reachable=%s",
+            "Chat response session_id=%s thread_id=%s route=%s findings=%s config_proposals=%s patch_proposals=%s source_citations=%s moonraker_reachable=%s",
             payload.session_id,
             thread_id,
             route,
             len(findings),
             len(config_proposals),
             len(patch_proposals),
+            len(source_citations),
             result.get("moonraker_reachable", False),
         )
         return ChatResponse(
@@ -171,6 +174,7 @@ class ChatService:
             next_actions=result.get("next_actions", []),
             config_proposals=config_proposals,
             patch_proposals=patch_proposals,
+            source_citations=source_citations,
             provider=self.provider_name,
             moonraker_reachable=result.get("moonraker_reachable", False),
         )

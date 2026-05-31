@@ -85,6 +85,74 @@ def test_compose_config_response_keeps_text_short_and_avoids_code_duplication() 
     assert "This question should not be shown" not in result["response_text"]
 
 
+def test_compose_config_response_adds_clickable_config_source_citations() -> None:
+    snapshot = ConfigSnapshot.from_state(
+        {
+            "root_file": "printer.cfg",
+            "documents": [
+                {
+                    "path": "Klippy/filament.cfg",
+                    "sections": [
+                        "gcode_macro SFS_ENABLE",
+                        "filament_motion_sensor encoder_sensor",
+                    ],
+                    "content": (
+                        "[gcode_macro SFS_ENABLE]\n"
+                        "gcode:\n"
+                        "  SET_FILAMENT_SENSOR SENSOR=encoder_sensor ENABLE=1\n\n"
+                        "[filament_motion_sensor encoder_sensor]\n"
+                        "switch_pin: ^PA15\n"
+                    ),
+                }
+            ],
+            "notes": [],
+            "section_locations": [
+                {
+                    "path": "Klippy/filament.cfg",
+                    "line_number": 1,
+                    "section": "gcode_macro SFS_ENABLE",
+                },
+                {
+                    "path": "Klippy/filament.cfg",
+                    "line_number": 5,
+                    "section": "filament_motion_sensor encoder_sensor",
+                },
+            ],
+        }
+    )
+
+    result = compose_config_response(
+        {
+            "user_message": "what does SFS_ENABLE macro do?",
+            "feature_target": {
+                "feature": "macro",
+                "rationale": "Matched macro explain request.",
+                "intent": "explain",
+                "section_name": "gcode_macro SFS_ENABLE",
+            },
+            "config_snapshot": snapshot.to_state(),
+            "config_output": {
+                "summary": (
+                    "`SFS_ENABLE` enables the "
+                    "[filament_motion_sensor encoder_sensor] section from Klippy/filament.cfg."
+                ),
+                "proposals": [],
+                "next_actions": [],
+                "follow_up_questions": [],
+            },
+        }
+    )
+
+    citations = result["source_citations"]
+    assert [citation["section"] for citation in citations] == [
+        "gcode_macro SFS_ENABLE",
+        "filament_motion_sensor encoder_sensor",
+    ]
+    assert citations[0]["label"] == "Klippy/filament.cfg:1 [gcode_macro SFS_ENABLE]"
+    assert "SET_FILAMENT_SENSOR SENSOR=encoder_sensor" in citations[0]["excerpt"]
+    assert citations[1]["line_number"] == 5
+
+
 def test_detect_config_target_preserves_followup_explain_intent_without_explicit_target() -> None:
     result = detect_config_target(
         {

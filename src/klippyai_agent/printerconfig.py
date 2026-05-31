@@ -258,6 +258,7 @@ class ConfigSnapshot:
         sections: list[str] = []
         if self.root_file:
             sections.append(f"Root config: {self.root_file}")
+        sections.append("Config paths below are relative to the Klipper config directory.")
         if self.notes:
             sections.append("Collector notes:\n" + "\n".join(self.notes))
         if self.placeholders:
@@ -401,7 +402,7 @@ class ConfigCollector:
             notes.append(f"Config collection stopped after {self._max_documents} files to keep context bounded.")
 
         return ConfigSnapshot(
-            root_file=str(root_file),
+            root_file=self._relative_path_string(root_file),
             documents=documents,
             section_locations=section_locations,
             placeholders=placeholders,
@@ -428,10 +429,10 @@ class ConfigCollector:
         if self._root_config_name:
             root_file = self._resolve_root_candidate(self._root_config_name)
             if not root_file.exists():
-                notes.append(f"Configured root config file was not found: {root_file}")
+                notes.append(f"Configured root config file was not found: {self._relative_path_string(root_file)}")
                 return None
             if not root_file.is_file():
-                notes.append(f"Configured root config path is not a file: {root_file}")
+                notes.append(f"Configured root config path is not a file: {self._relative_path_string(root_file)}")
                 return None
             return root_file
 
@@ -439,7 +440,7 @@ class ConfigCollector:
         if auto_detected is None:
             notes.append(f"No root config file could be auto-detected under: {self._config_dir}")
             return None
-        notes.append(f"Auto-detected root config file: {auto_detected}")
+        notes.append(f"Auto-detected root config file: {self._relative_path_string(auto_detected)}")
         return auto_detected
 
     def _resolve_root_candidate(self, value: str) -> Path:
@@ -505,16 +506,17 @@ class ConfigCollector:
         try:
             raw_content = path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            notes.append(f"Could not read config file {path}: {exc}")
+            notes.append(f"Could not read config file {self._relative_path_string(path)}: {exc}")
             return
 
+        display_path = self._relative_path_string(path)
         sections = self._extract_sections(raw_content)
-        section_locations.extend(self._extract_section_locations(path, raw_content))
-        placeholders.extend(self._detect_placeholders(path, raw_content))
+        section_locations.extend(self._extract_section_locations(display_path, raw_content))
+        placeholders.extend(self._detect_placeholders(display_path, raw_content))
         clipped_content = self._clip_text(raw_content.strip(), self._max_chars_per_document)
         documents.append(
             ConfigDocument(
-                path=str(path),
+                path=display_path,
                 content=clipped_content,
                 sections=sections,
             )
@@ -523,11 +525,13 @@ class ConfigCollector:
         for pattern in self._extract_include_patterns(raw_content):
             matches = self._resolve_include_matches(path.parent, pattern)
             if not matches:
-                notes.append(f"Include pattern matched no files: {pattern} (from {path.name})")
+                notes.append(f"Include pattern matched no files: {pattern} (from {display_path})")
                 continue
             for match in matches:
                 if self._should_ignore(match):
-                    notes.append(f"Ignored config file due to config_context.ignore_globs: {match}")
+                    notes.append(
+                        f"Ignored config file due to config_context.ignore_globs: {self._relative_path_string(match)}"
+                    )
                     continue
                 self._collect_file(match, visited, documents, section_locations, placeholders, notes)
                 if self._max_documents is not None and len(documents) >= self._max_documents:
@@ -557,7 +561,10 @@ class ConfigCollector:
             if resolved in visited:
                 continue
 
-            notes.append(f"Additional config file collected for lookup context; it may not be active unless included: {path}")
+            notes.append(
+                "Additional config file collected for lookup context; it may not be active unless included: "
+                f"{self._relative_path_string(path)}"
+            )
             before_count = len(documents)
             self._collect_file(path, visited, documents, section_locations, placeholders, notes)
             if len(documents) > before_count:
@@ -622,7 +629,7 @@ class ConfigCollector:
         return f"{text[:head]}\n...[truncated]...\n{text[-tail:]}"
 
     @classmethod
-    def _extract_section_locations(cls, path: Path, content: str) -> list[ConfigSectionLocation]:
+    def _extract_section_locations(cls, path: str, content: str) -> list[ConfigSectionLocation]:
         locations: list[ConfigSectionLocation] = []
 
         for line_number, raw_line in enumerate(content.splitlines(), start=1):
@@ -636,7 +643,7 @@ class ConfigCollector:
 
             locations.append(
                 ConfigSectionLocation(
-                    path=str(path),
+                    path=path,
                     line_number=line_number,
                     section=section,
                 )
@@ -645,7 +652,7 @@ class ConfigCollector:
         return locations
 
     @classmethod
-    def _detect_placeholders(cls, path: Path, content: str) -> list[ConfigPlaceholder]:
+    def _detect_placeholders(cls, path: str, content: str) -> list[ConfigPlaceholder]:
         placeholders: list[ConfigPlaceholder] = []
         current_section: str | None = None
 
@@ -673,7 +680,7 @@ class ConfigCollector:
 
             placeholders.append(
                 ConfigPlaceholder(
-                    path=str(path),
+                    path=path,
                     line_number=line_number,
                     line_text=normalized_line,
                     value=unquoted_value,

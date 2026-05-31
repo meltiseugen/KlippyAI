@@ -11,6 +11,8 @@ const newChatButton = document.getElementById("new-chat-button");
 const composerStatus = document.getElementById("composer-status");
 const messageInput = document.getElementById("message-input");
 const template = document.getElementById("message-template");
+const quickActions = document.getElementById("quick-actions");
+const relatedFlow = document.getElementById("related-flow");
 const shellMenuToggle = document.getElementById("shell-menu-toggle");
 const shellScrim = document.getElementById("shell-scrim");
 const introMessage =
@@ -91,6 +93,7 @@ function createIntroEntry() {
     role: "assistant",
     text: introMessage,
     configProposals: [],
+    sourceCitations: [],
   };
 }
 
@@ -131,10 +134,11 @@ function normalizeConversationEntries(entries) {
       const role = entry.role === "user" ? "user" : "assistant";
       const text = typeof entry.text === "string" ? entry.text : "";
       const configProposals = Array.isArray(entry.configProposals) ? entry.configProposals : [];
+      const sourceCitations = normalizeSourceCitations(entry.sourceCitations || entry.source_citations || []);
       if (!text.trim()) {
         return null;
       }
-      return { role, text, configProposals };
+      return { role, text, configProposals, sourceCitations };
     })
     .filter(Boolean);
 }
@@ -304,11 +308,145 @@ function buildHistoryMeta(conversation) {
   return `${timestampFormatter.format(new Date(conversation.updatedAt))} · ${messageLabel}`;
 }
 
+function getConversationText(conversation, limit = 6) {
+  if (!conversation?.messages?.length) {
+    return "";
+  }
+  return conversation.messages
+    .filter((entry) => entry.text && entry.text !== introMessage)
+    .slice(-limit)
+    .map((entry) => entry.text)
+    .join("\n");
+}
+
+function normalizeTopicLabel(value) {
+  return String(value || "")
+    .replace(/^\[|\]$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function addTopicCandidate(candidates, value, score) {
+  const label = normalizeTopicLabel(value);
+  if (!label || label.length < 3 || label.length > 120) {
+    return;
+  }
+  const key = label.toLowerCase();
+  const existing = candidates.get(key);
+  if (!existing || score > existing.score) {
+    candidates.set(key, { label, score });
+  }
+}
+
+function inferCurrentTopic(conversation) {
+  const text = getConversationText(conversation, 8);
+  if (!text) {
+    return null;
+  }
+
+  const candidates = new Map();
+  for (const match of text.matchAll(/`([^`\n]{3,120})`/g)) {
+    const value = match[1];
+    const score =
+      /^\[?[A-Za-z_]+(?:\s+[A-Za-z0-9_ -]+)+\]?$/.test(value) || /^[A-Z][A-Z0-9_]{2,}$/.test(value)
+        ? 6
+        : 2;
+    addTopicCandidate(candidates, value, score);
+  }
+  for (const match of text.matchAll(/\[([A-Za-z0-9_ -]+(?:\s+[A-Za-z0-9_ -]+)?)\]/g)) {
+    addTopicCandidate(candidates, match[1], 5);
+  }
+  for (const match of text.matchAll(/\b(?:gcode_macro|filament_(?:motion|switch)_sensor|delayed_gcode|fan_generic|heater_fan|controller_fan|temperature_fan|stepper_[a-z0-9_]+|tmc[0-9a-z_]+|extruder)\s+[A-Za-z0-9_ -]+\b/gi)) {
+    addTopicCandidate(candidates, match[0], 7);
+  }
+  for (const match of text.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) {
+    addTopicCandidate(candidates, match[0], 4);
+  }
+
+  const ranked = [...candidates.values()].sort((left, right) => right.score - left.score);
+  return ranked[0] || null;
+}
+
+function buildQuickActionItems(topic) {
+  if (!topic) {
+    return [];
+  }
+  const target = topic.label;
+  return [
+    {
+      label: "Locate Definition",
+      prompt: `Where is ${target} defined?`,
+    },
+    {
+      label: "Explain Usage",
+      prompt: `Explain how ${target} is used.`,
+    },
+    {
+      label: "Trace Callers",
+      prompt: `Trace what calls ${target} and what ${target} calls.`,
+    },
+    {
+      label: "Show Section",
+      prompt: `Show me the full config section for ${target}.`,
+    },
+  ];
+}
+
+function collectFlowNodes(conversation) {
+  const text = getConversationText(conversation, 8);
+  if (!text) {
+    return [];
+  }
+  const candidates = [];
+  const add = (value) => {
+    const label = normalizeTopicLabel(value);
+    if (!label || candidates.some((item) => item.toLowerCase() === label.toLowerCase())) {
+      return;
+    }
+    candidates.push(label);
+  };
+
+  for (const match of text.matchAll(/\bSTART_PRINT\b/g)) {
+    add(match[0]);
+  }
+  for (const match of text.matchAll(/\bSFS_ENABLE\b/g)) {
+    add(match[0]);
+  }
+  for (const match of text.matchAll(/\bSFS_DISABLE\b/g)) {
+    add(match[0]);
+  }
+  for (const match of text.matchAll(/\bSET_FILAMENT_SENSOR\b/g)) {
+    add(match[0]);
+  }
+  for (const match of text.matchAll(/\b(?:switch_sensor|encoder_sensor)\b/g)) {
+    add(match[0]);
+  }
+  for (const match of text.matchAll(/\bM600\b/g)) {
+    add(match[0]);
+  }
+
+  if (candidates.length < 2) {
+    for (const match of text.matchAll(/`([^`\n]{3,80})`/g)) {
+      if (/^[A-Z][A-Z0-9_]{2,}$/.test(match[1]) || /^[A-Za-z_]+(?:\s+[A-Za-z0-9_ -]+)+$/.test(match[1])) {
+        add(match[1]);
+      }
+      if (candidates.length >= 5) {
+        break;
+      }
+    }
+  }
+
+  return candidates.slice(0, 6);
+}
+
 function syncInteractiveState() {
   setDisabled(sendButton, isLoading);
   setDisabled(newChatButton, isLoading);
   setDisabled(messageInput, isLoading);
   for (const item of historyList?.querySelectorAll(".history-item, .history-delete-button") || []) {
+    item.disabled = isLoading;
+  }
+  for (const item of quickActions?.querySelectorAll(".quick-action-button") || []) {
     item.disabled = isLoading;
   }
 }
@@ -404,6 +542,40 @@ function normalizeHistoryPairLimit(value) {
   return Math.min(parsed, 50);
 }
 
+function normalizeSourceCitations(citations) {
+  if (!Array.isArray(citations)) {
+    return [];
+  }
+
+  return citations
+    .map((citation) => {
+      if (!citation || typeof citation !== "object") {
+        return null;
+      }
+
+      const label = String(citation.label || "").trim();
+      const path = String(citation.path || "").trim();
+      const section = String(citation.section || "").trim();
+      const excerpt = String(citation.excerpt || "");
+      const rawLineNumber = citation.lineNumber ?? citation.line_number;
+      const parsedLineNumber = Number.parseInt(rawLineNumber, 10);
+      const lineNumber = Number.isFinite(parsedLineNumber) && parsedLineNumber > 0 ? parsedLineNumber : null;
+
+      if (!label && !path && !section && !excerpt.trim()) {
+        return null;
+      }
+
+      return {
+        label,
+        path,
+        lineNumber,
+        section,
+        excerpt,
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildRequestHistory(entries, pairLimit = conversationHistoryPairs) {
   const messageLimit = normalizeHistoryPairLimit(pairLimit) * 2;
   if (messageLimit <= 0) {
@@ -423,6 +595,53 @@ function buildRequestHistory(entries, pairLimit = conversationHistoryPairs) {
     }));
 }
 
+function renderRightRail(conversation) {
+  if (!quickActions || !relatedFlow) {
+    return;
+  }
+
+  const topic = inferCurrentTopic(conversation);
+  const actionItems = buildQuickActionItems(topic);
+  quickActions.innerHTML = "";
+
+  if (!actionItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "rail-empty";
+    empty.textContent = "No config topic yet.";
+    quickActions.appendChild(empty);
+  } else {
+    for (const item of actionItems) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "quick-action-button";
+      button.textContent = item.label;
+      button.title = item.prompt;
+      button.disabled = isLoading;
+      button.addEventListener("click", () => {
+        runPrompt(item.prompt);
+      });
+      quickActions.appendChild(button);
+    }
+  }
+
+  const nodes = collectFlowNodes(conversation);
+  relatedFlow.innerHTML = "";
+  if (nodes.length < 2) {
+    const empty = document.createElement("div");
+    empty.className = "rail-empty";
+    empty.textContent = "No related flow yet.";
+    relatedFlow.appendChild(empty);
+    return;
+  }
+
+  for (const node of nodes) {
+    const item = document.createElement("div");
+    item.className = "flow-node";
+    item.textContent = node;
+    relatedFlow.appendChild(item);
+  }
+}
+
 function scrollMessagesToBottom() {
   if (!messages) {
     return;
@@ -440,6 +659,133 @@ function buildLoadingDots() {
   }
 
   return dots;
+}
+
+function appendStrongText(parent, text) {
+  const parts = String(text || "").split(/(\*\*[^*]+\*\*)/g);
+  for (const part of parts) {
+    if (!part) {
+      continue;
+    }
+    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+      const strong = document.createElement("strong");
+      strong.textContent = part.slice(2, -2);
+      parent.appendChild(strong);
+    } else {
+      parent.appendChild(document.createTextNode(part));
+    }
+  }
+}
+
+function appendInlineMarkdown(parent, text) {
+  const parts = String(text || "").split(/(`[^`]*`)/g);
+  for (const part of parts) {
+    if (!part) {
+      continue;
+    }
+    if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+      const code = document.createElement("code");
+      code.textContent = part.slice(1, -1);
+      parent.appendChild(code);
+    } else {
+      appendStrongText(parent, part);
+    }
+  }
+}
+
+function isMarkdownListLine(line) {
+  return /^\s*(?:[-*]\s+|\d+[.)]\s+)/.test(line);
+}
+
+function isMarkdownHeadingLine(line) {
+  return /^\s{0,3}#{1,4}\s+/.test(line);
+}
+
+function isMarkdownFenceLine(line) {
+  return /^\s*```/.test(line);
+}
+
+function renderMarkdown(element, text) {
+  element.textContent = "";
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fenceMatch = line.match(/^\s*```([A-Za-z0-9_-]+)?\s*$/);
+    if (fenceMatch) {
+      index += 1;
+      const codeLines = [];
+      while (index < lines.length && !isMarkdownFenceLine(lines[index])) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) {
+        index += 1;
+      }
+
+      const pre = document.createElement("pre");
+      pre.className = "markdown-code";
+      const code = document.createElement("code");
+      if (fenceMatch[1]) {
+        code.dataset.language = fenceMatch[1];
+      }
+      code.textContent = codeLines.join("\n");
+      pre.appendChild(code);
+      element.appendChild(pre);
+      continue;
+    }
+
+    const headingMatch = line.match(/^\s{0,3}(#{1,4})\s+(.+?)\s*$/);
+    if (headingMatch) {
+      const level = Math.min(headingMatch[1].length + 2, 6);
+      const heading = document.createElement(`h${level}`);
+      appendInlineMarkdown(heading, headingMatch[2]);
+      element.appendChild(heading);
+      index += 1;
+      continue;
+    }
+
+    if (isMarkdownListLine(line)) {
+      const ordered = /^\s*\d+[.)]\s+/.test(line);
+      const list = document.createElement(ordered ? "ol" : "ul");
+      while (index < lines.length) {
+        const itemLine = lines[index];
+        const itemMatch = ordered
+          ? itemLine.match(/^\s*\d+[.)]\s+(.+?)\s*$/)
+          : itemLine.match(/^\s*[-*]\s+(.+?)\s*$/);
+        if (!itemMatch) {
+          break;
+        }
+        const item = document.createElement("li");
+        appendInlineMarkdown(item, itemMatch[1]);
+        list.appendChild(item);
+        index += 1;
+      }
+      element.appendChild(list);
+      continue;
+    }
+
+    const paragraphLines = [];
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !isMarkdownFenceLine(lines[index]) &&
+      !isMarkdownHeadingLine(lines[index]) &&
+      !isMarkdownListLine(lines[index])
+    ) {
+      paragraphLines.push(lines[index].trim());
+      index += 1;
+    }
+    const paragraph = document.createElement("p");
+    appendInlineMarkdown(paragraph, paragraphLines.join(" "));
+    element.appendChild(paragraph);
+  }
 }
 
 function appendConfigProposals(article, configProposals) {
@@ -492,6 +838,55 @@ function appendConfigProposals(article, configProposals) {
   }
 }
 
+function formatSourceCitationLabel(citation) {
+  if (citation.label) {
+    return citation.label;
+  }
+  const section = citation.section ? ` [${citation.section}]` : "";
+  if (citation.path && citation.lineNumber) {
+    return `${citation.path}:${citation.lineNumber}${section}`;
+  }
+  return citation.path ? `${citation.path}${section}` : citation.section || "Config source";
+}
+
+function appendSourceCitations(article, sourceCitations) {
+  const citations = normalizeSourceCitations(sourceCitations);
+  if (!citations.length) {
+    return;
+  }
+
+  const section = document.createElement("section");
+  section.className = "source-citations";
+  section.setAttribute("aria-label", "Sources");
+
+  const title = document.createElement("div");
+  title.className = "source-citations-title";
+  title.textContent = "Sources";
+  section.appendChild(title);
+
+  const list = document.createElement("div");
+  list.className = "source-citations-list";
+
+  for (const citation of citations) {
+    const item = document.createElement("details");
+    item.className = "source-citation";
+
+    const summary = document.createElement("summary");
+    summary.textContent = formatSourceCitationLabel(citation);
+    item.appendChild(summary);
+
+    const excerpt = document.createElement("pre");
+    excerpt.className = "source-citation-excerpt";
+    excerpt.textContent = citation.excerpt?.trim() || "No section excerpt was available in the collected config.";
+    item.appendChild(excerpt);
+
+    list.appendChild(item);
+  }
+
+  section.appendChild(list);
+  article.appendChild(section);
+}
+
 function buildMessageElement(entry, options = {}) {
   const fragment = template?.content?.cloneNode(true) || document.createDocumentFragment();
   const article = fragment.querySelector(".message") || document.createElement("article");
@@ -514,7 +909,12 @@ function buildMessageElement(entry, options = {}) {
 
   article.classList.add(entry.role);
   setText(meta, entry.role === "user" ? "You" : "KlippyAI");
-  setText(content, entry.text);
+  content.classList.toggle("markdown", entry.role === "assistant");
+  if (entry.role === "assistant") {
+    renderMarkdown(content, entry.text);
+  } else {
+    setText(content, entry.text);
+  }
 
   if (options.pending) {
     article.classList.add("pending");
@@ -523,6 +923,10 @@ function buildMessageElement(entry, options = {}) {
 
   if (entry.role === "assistant" && entry.configProposals?.length) {
     appendConfigProposals(article, entry.configProposals);
+  }
+
+  if (entry.role === "assistant" && entry.sourceCitations?.length) {
+    appendSourceCitations(article, entry.sourceCitations);
   }
 
   return article;
@@ -546,6 +950,7 @@ function renderConversation() {
           role: "assistant",
           text: "Analyzing",
           configProposals: [],
+          sourceCitations: [],
         },
         { pending: true }
       )
@@ -556,6 +961,7 @@ function renderConversation() {
     messageInput.value = conversation.draft || "";
   }
   body.dataset.sessionId = conversation.sessionId || "";
+  renderRightRail(conversation);
   scrollMessagesToBottom();
   syncInteractiveState();
 }
@@ -690,6 +1096,7 @@ async function sendMessage() {
       role: "assistant",
       text: "Enter a question first.",
       configProposals: [],
+      sourceCitations: [],
     });
     touchConversation(conversation);
     renderConversation();
@@ -706,6 +1113,7 @@ async function sendMessage() {
       role: "assistant",
       text: String(error),
       configProposals: [],
+      sourceCitations: [],
     });
     touchConversation(conversation);
     renderConversation();
@@ -729,6 +1137,7 @@ async function sendMessage() {
     role: "user",
     text: message,
     configProposals: [],
+    sourceCitations: [],
   });
   updateConversationTitle(conversation, message);
   conversation.draft = "";
@@ -770,12 +1179,14 @@ async function sendMessage() {
       role: "assistant",
       text: payload.response,
       configProposals: payload.config_proposals || [],
+      sourceCitations: normalizeSourceCitations(payload.source_citations || []),
     });
   } catch (error) {
     conversation.messages.push({
       role: "assistant",
       text: String(error),
       configProposals: [],
+      sourceCitations: [],
     });
   } finally {
     touchConversation(conversation);
@@ -784,6 +1195,20 @@ async function sendMessage() {
     renderConversation();
     persistState();
   }
+}
+
+function runPrompt(prompt) {
+  if (isLoading || !messageInput) {
+    return;
+  }
+  const conversation = getCurrentConversation();
+  if (!conversation) {
+    return;
+  }
+  messageInput.value = prompt;
+  conversation.draft = prompt;
+  persistState();
+  void sendMessage();
 }
 
 sendButton?.addEventListener("click", () => {
@@ -815,6 +1240,7 @@ void bootstrap().catch((error) => {
     role: "assistant",
     text: String(error),
     configProposals: [],
+    sourceCitations: [],
   });
   touchConversation(conversation);
   renderHistory();

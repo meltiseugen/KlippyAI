@@ -103,6 +103,15 @@ async def test_chat_service_routes_config_lookup_request_to_config_graph() -> No
         {
             "response_text": "I found 1 active [extruder] section in the current config tree.",
             "config_proposals": [],
+            "source_citations": [
+                {
+                    "label": "printer.cfg:10 [extruder]",
+                    "path": "printer.cfg",
+                    "line_number": 10,
+                    "section": "extruder",
+                    "excerpt": "[extruder]\nstep_pin: PA1\n",
+                }
+            ],
         },
     )
     service = ChatService(
@@ -126,6 +135,9 @@ async def test_chat_service_routes_config_lookup_request_to_config_graph() -> No
     )
 
     assert "extruder" in response.response
+    assert len(response.source_citations) == 1
+    assert response.source_citations[0].path == "printer.cfg"
+    assert "[extruder]" in response.source_citations[0].excerpt
     assert not diagnosis_graph.calls
     assert config_graph.calls
     assert config_graph.calls[0]["state"]["chat_intent"]["intent"] == "config_lookup"

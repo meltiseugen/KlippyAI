@@ -34,6 +34,9 @@ def test_config_collector_reads_printer_cfg_and_includes(tmp_path: Path) -> None
     assert len(snapshot.documents) == 2
     assert snapshot.has_section_prefix("fan") is True
     assert snapshot.has_managed_include("klippyai") is True
+    assert snapshot.root_file == "printer.cfg"
+    assert {document.path for document in snapshot.documents} == {"printer.cfg", "extras/fan.cfg"}
+    assert str(tmp_path) not in snapshot.to_prompt_block()
 
 
 def test_config_collector_auto_detects_nonstandard_root_file(tmp_path: Path) -> None:

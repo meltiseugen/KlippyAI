@@ -79,6 +79,14 @@ class ConfigProposal(BaseModel):
         return normalized
 
 
+class SourceCitation(BaseModel):
+    label: str
+    path: str
+    line_number: int | None = None
+    section: str | None = None
+    excerpt: str = ""
+
+
 class DetectedAddonSummary(BaseModel):
     name: str
     source: str
@@ -132,6 +140,7 @@ class ChatResponse(BaseModel):
     next_actions: list[str]
     config_proposals: list[ConfigProposal] = Field(default_factory=list)
     patch_proposals: list[PatchProposal] = Field(default_factory=list)
+    source_citations: list[SourceCitation] = Field(default_factory=list)
     provider: str
     moonraker_reachable: bool
 
